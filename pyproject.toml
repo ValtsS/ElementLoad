@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "elementload"
+version = "0.1.0"
+description = "FEM-based load analysis of Yagi antenna elements"
+requires-python = ">=3.11"
+
+[tool.setuptools.packages.find]
+include = ["elementload*"]

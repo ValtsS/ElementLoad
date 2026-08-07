@@ -79,7 +79,8 @@ def render_report(model, result, wind_speed, damping=0.01, height=10.0, z_0=0.05
         lines.append(f"Overlap per joint: {ov} mm, joint model: {model.joint}")
     else:
         lines.append(f"Overlap: {model.overlap * 1000:.0f} mm, joint model: {model.joint}")
-    supports = ", ".join(f"{p}:{k}" for p, k in model.support_specs)
+    supports = ", ".join(f"{p:g}:{k}" if isinstance(p, float) else f"{p}:{k}"
+                         for p, k in model.support_specs)
     lines.append(f"Supports: {supports}")
     lines.append(f"Material: {model.material}")
     lines.append(f"Pins: {model.n_pins} x {model.pin_diameter * 1000:.1f} mm at each joint")
@@ -254,9 +255,14 @@ def _main_stm(args, parser):
     for el in elements:
         mat = args.material or el.material_key
         yield_stress = None if mat is not None else el.yield_stress
+        supports = args.support
+        if supports is None:
+            supports = [("center", "fixed")]
+            if el.support_distance > 0.0:
+                supports += [(el.support_distance, "pin"), (-el.support_distance, "pin")]
         model = build_model_from_geometry(
             element_tube_extents(el), args.joint or "rigid",
-            args.support or [("center", "fixed")], wind, mat or el.material,
+            supports, wind, mat or el.material,
             args.pin_diameter, args.n_pins, yield_stress)
         result = analyze(model)
         title = f"{el.name} ({el.freq / 1e6:.2f} MHz, mount {el.mount_pos * 1000:.0f} mm)"

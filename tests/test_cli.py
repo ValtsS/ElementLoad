@@ -88,6 +88,19 @@ def test_cli_stm_acceptance():
     assert "combined life" in result.stdout
 
 
+def test_cli_stm_support_distance_applied():
+    code = ("from elementload.cli import main; "
+            "main(['--stm', 'data/a1.stm', '--element', '40m RE'])")
+    result = subprocess.run([sys.executable, "-c", code],
+                            capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    assert "Material: al6060-t66" in result.stdout
+    # ES = 216.53543 in = 5.5 m; a support is added on each side of centre
+    assert "Supports: center:fixed, 5.5:pin, -5.5:pin" in result.stdout
+    # the added truss supports must show up in the survival wind speed
+    assert "yield:" in result.stdout
+
+
 def test_cli_stm_unknown_element_rejected():
     code = ("from elementload.cli import main; "
             "main(['--stm', 'data/mechanical2.stm', '--element', 'nope'])")

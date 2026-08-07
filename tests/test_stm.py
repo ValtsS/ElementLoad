@@ -67,6 +67,26 @@ def test_element_freq_mount_and_yield():
     assert el.yield_stress == pytest.approx(21756 * PSI_TO_PA)
 
 
+def test_support_distance_from_es_field():
+    # ES = element support distance: distance from the boom to where guys/trussing
+    # attach. 216.53543 in = 5500 mm = 550 cm, as shown for the 40m elements in a1.stm.
+    text = HEADER + (
+        'E0="40m RE";    MP=5.90551 in;    ES=216.53543 in;    SC=9;    RF=6.7248 MHz;    DE=False;\n'
+        ' E0S0    SHAPE=Round;    X=0.47244 in;    Y=0.47244 in;    T=0.03937 in;    '
+        'IS=399.60630 in;    IE=449.05512 in;    YS=24656 psi;    MAT="6060-T66";\n'
+        ' E0S8    SHAPE=Round;    X=2.36220 in;    Y=2.36220 in;    T=0.07874 in;    '
+        'IS=0.00000 in;    IE=118.11024 in;    YS=24656 psi;    MAT="6060-T66";\n'
+    )
+    el = parse_stm(text).elements[0]
+    assert el.support_distance == pytest.approx(216.53543 * IN_TO_M)
+    assert el.support_distance == pytest.approx(5.5, abs=1e-6)
+
+
+def test_support_distance_zero_when_absent():
+    stm = parse_stm(HEADER + ELEMENT + BOOM)
+    assert stm.elements[0].support_distance == 0.0
+
+
 def test_read_stm_file_element_list():
     stm = read_stm(DATA)
     assert [e.name for e in stm.elements] == [

@@ -95,6 +95,11 @@ al6060-t66 (`--material al6060-t66`, 190 MPa yield). Unknown/custom labels fall 
 the file YS (21756 psi = 150 MPa). Fatigue is computed for al6061-t6/al6063-t6/
 al6060-t6/al6060-t66 (S-N curves in `fatigue.py` SN_DATA); unknown labels skip fatigue
 with a NOTE in the report.
+The `ES` field on an element line is the Element Support Distance (distance from the boom
+to where guys/trussing attach; 0 = none). `StmElement.support_distance` holds it in metres;
+the CLI adds a pin support at +ES and -ES from centre on top of the default centre-fixed
+mount (e.g. a1.stm 40m elements: ES = 216.53543 in = 5.5 m -> supports center:fixed,
+5.5:pin, -5.5:pin). Explicit `--support` overrides the file-derived supports.
 Open items flagged: local-buckling constant (0.3) and joint overlap stiffness models are
 not yet calibrated against measured telescoping data; geometry not cross-checked against
 a tube catalog. Survival wind speed bisection caps at 500 m/s.

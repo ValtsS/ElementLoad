@@ -50,7 +50,7 @@ class StmElement:
     key: str
     name: str
     mount_pos: float
-    element_spacing: float
+    support_distance: float
     segment_count: int
     freq: float
     driven: bool

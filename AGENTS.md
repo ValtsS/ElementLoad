@@ -69,9 +69,11 @@ The test skips automatically under other interpreters.
 8. later: dynamics (modal / vortex shedding), fatigue, multi-element model
 
 CLI: `python -m elementload --tube D,t,L [--tube ...] --overlap M --joint rigid|slipped
---support POS:KIND [--support ...] [--wind MPS] [--material MAT] [--pin-diameter M] [--n-pins N]`
+--support POS:KIND [--support ...] [--wind MPS] [--material MAT] [--pin-diameter M] [--n-pins N]
+[--damping ZETA]`
 or the installed `elementload` entry point. Report gives per-mode survival wind speeds
-(yield, local buckling, joint pin shear) in km/h plus ASCII deflection/moment diagrams.
+(yield, local buckling, joint pin shear) in km/h plus ASCII deflection/moment diagrams,
+and an EN 1991-1-4 Annex E crosswind response section.
 Open items flagged: local-buckling constant (0.3) and joint overlap stiffness models are
 not yet calibrated against measured telescoping data; geometry not cross-checked against
 a tube catalog. Survival wind speed bisection caps at 500 m/s.

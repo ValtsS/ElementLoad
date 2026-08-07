@@ -351,3 +351,17 @@ def test_log_decrement_golden():
     # F.18: delta_a = c_f rho b v_m / (2 n_1 m_e)
     da = aerodynamic_log_decrement(1.2, 1.225, 0.03, 30.0, 8.0, 0.34)
     assert da == pytest.approx(1.2 * 1.225 * 0.03 * 30.0 / (2 * 8.0 * 0.34), rel=1e-12)
+
+
+def test_structural_factor_literal_workcase():
+    # Literal hand-computed example (independent closed forms), z=10 m, z0=0.05 m,
+    # b=0.03 m, h=2 m, f=8 Hz, v_m=30 m/s, delta=0.063, T=600 s.
+    r = structural_factor(10.0, 0.03, 2.0, 8.0, 30.0, 0.05, 0.063)
+    assert r["turbulence_intensity"] == pytest.approx(0.188739, rel=1e-5)
+    assert r["length_scale"] == pytest.approx(40.3117, rel=1e-5)
+    assert r["background"] == pytest.approx(0.879551, rel=1e-5)
+    assert r["resonance"] == pytest.approx(0.712462, rel=1e-5)
+    assert r["peak_factor"] == pytest.approx(4.263095, rel=1e-5)
+    assert r["c_s"] == pytest.approx(0.931442, rel=1e-5)
+    assert r["c_d"] == pytest.approx(1.401658, rel=1e-5)
+    assert r["c_s_cd"] == pytest.approx(1.305564, rel=1e-5)

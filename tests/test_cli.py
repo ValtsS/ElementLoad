@@ -84,7 +84,8 @@ def test_cli_stm_acceptance():
     assert "Overlap per joint: 100, 100, 130 mm" in result.stdout
     assert "Survival wind speed per failure mode" in result.stdout
     assert "Material: al6060-t6" in result.stdout
-    assert "no S-N data for this material" in result.stdout
+    assert "Fatigue (Miner's rule, R = -1, S-N al6060-t6):" in result.stdout
+    assert "combined life" in result.stdout
 
 
 def test_cli_stm_unknown_element_rejected():

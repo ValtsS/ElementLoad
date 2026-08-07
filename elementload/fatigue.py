@@ -12,6 +12,8 @@ the curve is treated as infinite life (constant-amplitude assumption).
 
 6063-T6 is anchored to its published fatigue strength (ASM Handbook): 69 MPa at
 the same long-life condition; A is scaled by 69/96.5 to keep the curve shape.
+6060-T6 (70 MPa) and 6060-T66 (67 MPa) use the published fatigue strengths of
+MakeItFrom.com (long-life, fully reversed); A is scaled the same way.
 """
 
 import math
@@ -19,6 +21,8 @@ import math
 SN_DATA = {
     "al6061-t6": {"A": 14479.0e6, "endurance": 96.5e6},
     "al6063-t6": {"A": 10352.0e6, "endurance": 69.0e6},
+    "al6060-t6": {"A": 10502.9e6, "endurance": 70.0e6},
+    "al6060-t66": {"A": 10052.78e6, "endurance": 67.0e6},
 }
 
 

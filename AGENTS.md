@@ -156,12 +156,14 @@ Physical targets (all testable against closed-form or an independent solver):
     (survival wind speeds still use the undamped static wind).
 
 ### 8.4 Fatigue (follow-on, depends on 8.2/8.3)
-- S-N curve data for 6061-T6 / 6063-T6, cyclic stress range from VIV and gust
-  oscillations, cumulative damage (Miner's rule), fatigue life estimate in hours.
+- S-N curve data for 6061-T6 / 6063-T6 / 6060-T6 / 6060-T66, cyclic stress range
+  from VIV and gust oscillations, cumulative damage (Miner's rule), fatigue life
+  estimate in hours.
   - S-N (R = -1, stress AMPLITUDE): closed-form fit to 6061-T6 data of
     Yahr (1997, ASME JPVT) S_a = A/sqrt(N) + S_e with A = 14 479 MPa,
     S_e = 96.5 MPa (14 ksi); treated as infinite life below S_e. 6063-T6 anchored
-    to the ASM fatigue strength 69 MPa, A scaled by 69/96.5 (approximation).
+    to the ASM fatigue strength 69 MPa, 6060-T6 to the MakeItFrom fatigue strength
+    70 MPa, 6060-T66 to 67 MPa; A scaled by endurance/96.5 for each (approximation).
   - `elementload/fatigue.py`: `stress_amplitude_at`, `cycles_to_failure`,
     `stress_range_to_failure` (amplitude = range/2), `damage_fraction`,
     `damage_per_hour`, `miner_life_hours`; validated against the published curve

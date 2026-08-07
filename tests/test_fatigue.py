@@ -32,6 +32,21 @@ def test_sn_6063_t6_endurance():
     assert stress_amplitude_at(5e8, "al6063-t6") == pytest.approx(69.46e6, rel=1e-3)
 
 
+def test_sn_6060_t6_endurance():
+    # MakeItFrom fatigue strength 6060-T6 = 70 MPa (long-life, fully reversed)
+    assert SN_DATA["al6060-t6"]["endurance"] == pytest.approx(70.0e6, rel=1e-9)
+    # A scaled from the 6061-T6 fit by 70/96.5
+    assert SN_DATA["al6060-t6"]["A"] == pytest.approx(14479.0e6 * 70.0 / 96.5, rel=1e-6)
+    assert stress_amplitude_at(5e8, "al6060-t6") == pytest.approx(70.47e6, rel=1e-3)
+
+
+def test_sn_6060_t66_endurance():
+    # MakeItFrom fatigue strength 6060-T66 = 67 MPa; A scaled by 67/96.5
+    assert SN_DATA["al6060-t66"]["endurance"] == pytest.approx(67.0e6, rel=1e-9)
+    assert SN_DATA["al6060-t66"]["A"] == pytest.approx(14479.0e6 * 67.0 / 96.5, rel=1e-6)
+    assert stress_amplitude_at(5e8, "al6060-t66") == pytest.approx(67.45e6, rel=1e-3)
+
+
 def test_cycles_to_failure_inverts_curve():
     # N = (A/(S_a - S_e))^2; the curve inverts back to the anchor points
     n_fail = cycles_to_failure(110.979e6)

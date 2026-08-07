@@ -94,6 +94,7 @@ Physical targets (all testable against closed-form or an independent solver):
   Cross-check telescoping element frequencies against OpenSees eigen (run under
   `.venv-osees`).
 - Damping ratio zeta: configurable input (CLI `--damping`, default ~0.01 for aluminum).
+  — done (mass in `dynamics.py`, per-mode f + lock-in V_crit + Scruton in CLI report)
 
 ### 8.2 Vortex shedding / cross-wind response
 - Strouhal number St ~ 0.2 (smooth circular cylinder, subcritical range).
@@ -103,6 +104,7 @@ Physical targets (all testable against closed-form or an independent solver):
 - Report: shedding frequency vs wind speed, the lock-in speed window(s) in km/h, and
   whether the design wind range crosses them; estimate crosswind amplitude/stress range
   (reference: EN 1991-1-4 section on vortex-induced vibration / ESDU data).
+  — partial (f_s, V_crit, Scruton implemented; lock-in window + amplitude estimate pending)
 
 ### 8.3 Along-wind dynamic amplification
 - Dynamic amplification factor for buffeting response (gust turbulence) —

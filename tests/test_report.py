@@ -1,6 +1,13 @@
 import pytest
 
-from elementload.report import build_model, analyze, survival_wind_speed, natural_frequencies
+from elementload.report import (
+    build_model,
+    analyze,
+    survival_wind_speed,
+    natural_frequencies,
+    vortex_crosswind_response,
+)
+from elementload.dynamics import critical_wind_speed, scruton_number, crosswind_amplitude
 from elementload.geometry import tube_inertia, tube_section_modulus, tube_area
 
 E = 69.0e9
@@ -161,3 +168,25 @@ def test_natural_frequencies_overlap_uses_combined_mass():
     f2 = natural_frequencies(m2, n_modes=1)[0]
     assert f2 > f1
     assert f2 > 0.0
+
+
+def test_vortex_crosswind_response_fields():
+    # single 30 mm tube clamped at center -> per-mode crosswind response at lock-in
+    tubes = [(0.030, 0.002, 2.0)]
+    model = build_model(tubes, overlap=0.0, joint="rigid", supports=[("center", "fixed")], wind_speed=40.0)
+    resp = vortex_crosswind_response(model, damping=0.01, n_modes=3)
+    assert len(resp) == 3
+    r = resp[0]
+    f = natural_frequencies(model, n_modes=1)[0]
+    assert r["frequency"] == pytest.approx(f, rel=1e-9)
+    assert r["v_crit"] == pytest.approx(critical_wind_speed(f, 0.030), rel=1e-9)
+    lo, hi = r["lock_in"]
+    assert lo < r["v_crit"] < hi
+    assert r["scruton"] == pytest.approx(
+        scruton_number(r["mass_per_length"], 0.01, 0.030), rel=1e-9)
+    # amplitude smaller than the diameter, dimensionless amplitude from E.7
+    assert 0.0 < r["y_max"] < 0.030
+    assert r["stress_range"] > 0.0
+    # at lock-in the design amplitude scales 1/Sc; more damping -> smaller response
+    resp2 = vortex_crosswind_response(model, damping=0.02, n_modes=3)
+    assert resp2[0]["y_max"] == pytest.approx(r["y_max"] / 2.0, rel=1e-9)

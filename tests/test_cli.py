@@ -35,7 +35,8 @@ def test_cli_subprocess_acceptance():
             "'--overlap','0.05',"
             "'--joint','rigid',"
             "'--support','center:fixed',"
-            "'--wind','40'])")
+            "'--wind','40',"
+            "'--damping','0.02'])")
     result = subprocess.run([sys.executable, "-c", code],
                             capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stderr
@@ -46,8 +47,13 @@ def test_cli_subprocess_acceptance():
     assert "N.m" in result.stdout
     assert "MPa" in result.stdout
     assert "Dynamics" in result.stdout
+    assert "damping zeta = 0.020" in result.stdout
     assert "lock-in at V_crit" in result.stdout
     assert "Scruton" in result.stdout
+    assert "crosswind response" in result.stdout
+    assert "y_max" in result.stdout
+    assert "stress range" in result.stdout
+    assert "lock-in window" in result.stdout
 
 
 def test_cli_invalid_tube_arg():

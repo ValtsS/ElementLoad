@@ -62,7 +62,7 @@ def _deflection_samples(model, result):
     return [(n.x, abs(w)) for n, (w, _) in zip(model.nodes, result.displacements)]
 
 
-def render_report(model, result, wind_speed):
+def render_report(model, result, wind_speed, damping=0.01):
     lines = []
     lines.append("Element load analysis")
     lines.append("=====================")
@@ -91,8 +91,8 @@ def render_report(model, result, wind_speed):
     limiting = min(survivals, key=survivals.get)
     lines.append(f"  LIMITING MODE: {limiting} at {survivals[limiting] * KMH_PER_MPS:.1f} km/h")
     lines.append("")
-    lines.append("Dynamics (damping zeta = 0.01):")
-    from elementload.report import natural_frequencies
+    lines.append(f"Dynamics (damping zeta = {damping:.3f}):")
+    from elementload.report import natural_frequencies, vortex_crosswind_response
     from elementload.dynamics import critical_wind_speed, scruton_number
     from elementload.report import _model_mass
     freqs = natural_frequencies(model, n_modes=3)
@@ -101,8 +101,22 @@ def render_report(model, result, wind_speed):
         lines.append(f"  mode {i}: f = {f:6.2f} Hz, lock-in at V_crit = {v_crit * KMH_PER_MPS:6.0f} km/h")
     m_eff = _model_mass(model)
     d_ref = model.tube_specs[0][0]
-    sc = scruton_number(m_eff, 0.01, d_ref)
+    sc = scruton_number(m_eff, damping, d_ref)
     lines.append(f"  effective mass {m_eff:.3f} kg/m, Scruton Sc = {sc:.1f}")
+    lines.append("")
+    lines.append("Vortex shedding crosswind response (EN 1991-1-4 Annex E, approach 1):")
+    v_resp = vortex_crosswind_response(model, damping=damping, n_modes=3)
+    design_kmh = wind_speed * KMH_PER_MPS
+    for i, r in enumerate(v_resp, start=1):
+        lo_kmh = r["lock_in"][0] * KMH_PER_MPS
+        hi_kmh = r["lock_in"][1] * KMH_PER_MPS
+        lines.append(
+            f"  mode {i}: y_max = {r['y_max'] * 1000:7.2f} mm, "
+            f"bending stress range = {r['stress_range'] / 1e6:7.1f} MPa, "
+            f"lock-in window {lo_kmh:6.0f}..{hi_kmh:6.0f} km/h"
+        )
+        if lo_kmh <= design_kmh <= hi_kmh:
+            lines.append(f"  NOTE: design wind {design_kmh:.0f} km/h is inside the mode {i} lock-in window")
     lines.append("")
     lines.append("Deflection |w| along element (mm):")
     samples = _deflection_samples(model, result)
@@ -134,12 +148,14 @@ def main(argv=None):
                         choices=("al6061-t6", "al6063-t6"))
     parser.add_argument("--pin-diameter", type=float, default=0.004, metavar="M")
     parser.add_argument("--n-pins", type=int, default=2, metavar="N")
+    parser.add_argument("--damping", type=float, default=0.01, metavar="ZETA",
+                        help="structural damping ratio for dynamic response (default 0.01)")
     args = parser.parse_args(argv)
 
     model = build_model(args.tube, args.overlap, args.joint, args.support,
                         args.wind, args.material, args.pin_diameter, args.n_pins)
     result = analyze(model)
-    print(render_report(model, result, args.wind))
+    print(render_report(model, result, args.wind, damping=args.damping))
 
 
 if __name__ == "__main__":

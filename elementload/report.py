@@ -157,6 +157,69 @@ def natural_frequencies(model, n_modes=3):
     return _nf(model.nodes, model.elements, model.supports, masses, n_modes)
 
 
+def _half_span(model):
+    x0 = model.nodes[model.supports[0].node].x
+    return max(abs(n.x - x0) for n in model.nodes)
+
+
+def vortex_crosswind_response(model, damping=0.01, n_modes=3):
+    """EN 1991-1-4 Annex E approach 1: crosswind response of each mode at lock-in.
+    Returns per-mode dicts with amplitude y_max and cyclic bending stress range."""
+    from elementload.dynamics import (
+        MODE_SHAPE_FACTOR_CANTILEVER,
+        correlation_length_factor_cantilever,
+        critical_wind_speed,
+        crosswind_amplitude,
+        equivalent_mass,
+        lateral_force_coefficient,
+        lateral_force_coefficient_base,
+        lock_in_window,
+        modal_data,
+        scruton_number,
+        vortex_inertia_load,
+    )
+    from elementload.geometry import tube_section_modulus
+
+    masses = [seg.mass_per_length for seg in model.segments]
+    lengths = [model.nodes[e.j].x - model.nodes[e.i].x for e in model.elements]
+    freqs, modes = modal_data(model.nodes, model.elements, model.supports, masses, n_modes)
+    b = model.tube_specs[0][0]
+    h = _half_span(model)
+    k = MODE_SHAPE_FACTOR_CANTILEVER
+    k_w = correlation_length_factor_cantilever(h, b)
+
+    responses = []
+    for i in range(n_modes):
+        f = freqs[i]
+        v_crit = critical_wind_speed(f, b)
+        re = reynolds_number(v_crit, b)
+        c_lat = lateral_force_coefficient(1.0, lateral_force_coefficient_base(re))
+        mode_w = modes[i][0::2]
+        m_e = equivalent_mass(masses, lengths, mode_w)
+        sc = scruton_number(m_e, damping, b)
+        y_max = crosswind_amplitude(b, sc, c_lat, k_w, k)
+        loads = vortex_inertia_load(masses, f, mode_w, y_max)
+        dloads = [DistributedLoad(j, q) for j, q in enumerate(loads)]
+        u = solve(model.nodes, model.elements, model.supports, dloads)
+        peak_stress = 0.0
+        for j, seg in enumerate(model.segments):
+            _, m_i, _, m_j = element_end_forces(model.elements, j, model.nodes, u, dloads)
+            z = tube_section_modulus(seg.outer_d, seg.wall)
+            peak_stress = max(peak_stress, abs(m_i) / z, abs(m_j) / z)
+        responses.append(dict(
+            frequency=f,
+            v_crit=v_crit,
+            lock_in=lock_in_window(v_crit),
+            reynolds=re,
+            c_lat=c_lat,
+            mass_per_length=m_e,
+            scruton=sc,
+            y_max=y_max,
+            stress_range=2.0 * peak_stress,
+        ))
+    return responses
+
+
 def _model_mass(model):
     # length-weighted average mass per length (representative of the element)
     total_length = sum(s.x1 - s.x0 for s in model.segments)

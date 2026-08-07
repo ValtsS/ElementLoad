@@ -6,16 +6,23 @@ def reynolds_number(velocity, diameter, nu_air=1.5e-5):
     return velocity * diameter / nu_air
 
 
-# EN 1991-1-4, Fig. 7.28, smooth cylinder: (Re, Cd) chart anchor points.
+# EN 1991-1-4, Fig. 7.28, smooth circular cylinder (k/b ~ 0): (Re, Cf,0).
+# Subcritical plateau ~1.2 up to Re~2e5 (Wieselsberger data, per Schewe 1983),
+# drag crisis 2e5..6e5 down to ~0.4, recovery toward ~0.8 transcritical.
+# Cross-checked against Dlubal Eurocode verification example VE0308:
+# Cf,0 = 0.55 at Re = 2e6.
 _CD_CHART = [
     (1.0e4, 1.2),
-    (1.0e5, 1.1),
-    (2.0e5, 1.0),
-    (4.0e5, 0.4),
-    (5.0e5, 0.35),
-    (1.0e6, 0.6),
-    (3.0e6, 0.8),
-    (1.0e7, 0.9),
+    (1.0e5, 1.2),
+    (2.0e5, 1.2),
+    (3.0e5, 0.9),
+    (4.0e5, 0.6),
+    (5.0e5, 0.4),
+    (6.0e5, 0.4),
+    (1.0e6, 0.45),
+    (2.0e6, 0.55),
+    (5.0e6, 0.7),
+    (1.0e7, 0.8),
 ]
 
 

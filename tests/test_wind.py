@@ -32,21 +32,27 @@ def test_reynolds_number():
     assert re == pytest.approx(6.0e4, rel=1e-9)
 
 
-def test_drag_coefficient_subcritical():
-    # EN 1991-1-4 smooth cylinder: Cd ~ 1.2 in the subcritical range
-    assert drag_coefficient(1.0e4) == pytest.approx(1.2, abs=0.02)
+def test_drag_coefficient_subcritical_plateau():
+    # EN 1991-1-4 Fig 7.28 smooth cylinder: Cf,0 ~ 1.2 across the subcritical plateau
+    for re in (1.0e4, 5.0e4, 1.0e5, 2.0e5):
+        assert drag_coefficient(re) == pytest.approx(1.2, abs=0.02)
 
 
 def test_drag_coefficient_critical_drop():
-    # Cd drops through the critical range near Re ~ 4e5
+    # Cd drops through the drag crisis (critical range) near Re ~ 4e5
     low = drag_coefficient(1.0e4)
-    high = drag_coefficient(1.0e6)
     assert drag_coefficient(4.0e5) < 0.6 * low
     assert drag_coefficient(4.0e5) > 0.2 * low
+    assert drag_coefficient(5.0e5) < drag_coefficient(4.0e5)
+
+
+def test_drag_coefficient_dlubal_verification_anchor():
+    # Dlubal Eurocode verification example VE0308: Cf,0 = 0.55 at Re = 2e6
+    assert drag_coefficient(2.0e6) == pytest.approx(0.55, abs=0.02)
 
 
 def test_drag_coefficient_supercritical_recovery():
-    # Cd partially recovers toward transcritical regime
+    # Cd partially recovers toward the transcritical regime
     assert drag_coefficient(1.0e7) > drag_coefficient(4.0e5)
     assert drag_coefficient(1.0e7) <= 1.0
 

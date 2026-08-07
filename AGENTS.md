@@ -76,3 +76,50 @@ or the installed `elementload` entry point. Report gives per-mode survival wind 
 Open items flagged: local-buckling constant (0.3) and joint overlap stiffness models are
 not yet calibrated against measured telescoping data; geometry not cross-checked against
 a tube catalog. Survival wind speed bisection caps at 500 m/s.
+
+## Dynamic loading plan (roadmap item 8)
+
+Physical targets (all testable against closed-form or an independent solver):
+
+### 8.1 Modal analysis — natural frequencies and mode shapes
+- Add consistent mass matrix to `solver.py` (2-node Euler-Bernoulli, 4x4, mass per
+  length rho*A from `tube_mass_per_length`). In overlap segments both tubes are
+  physically present, so use rho*(A_prev + A_cur) regardless of joint stiffness model
+  (the rigid/slipped choice only affects EI, not mass).
+- Assemble global M, apply support boundary conditions (constrained DOFs removed),
+  solve generalized eigenproblem (K - w^2 M) phi = 0 via `scipy.linalg.eigh`.
+- Output natural frequencies f_i (Hz) and mode shapes; report first N modes.
+- Golden tests: uniform cantilever — f_1 = (1.8751^2/(2 pi)) sqrt(EI/(m L^4)), and the
+  (beta_n L)^2 pattern (1.8751, 4.6941, 7.8548); double cantilever uses half-span.
+  Cross-check telescoping element frequencies against OpenSees eigen (run under
+  `.venv-osees`).
+- Damping ratio zeta: configurable input (CLI `--damping`, default ~0.01 for aluminum).
+
+### 8.2 Vortex shedding / cross-wind response
+- Strouhal number St ~ 0.2 (smooth circular cylinder, subcritical range).
+- Shedding frequency f_s = St * V / D; lock-in when f_s matches a natural frequency.
+- Critical wind speed per mode: V_crit,i = f_i * D / St.
+- Scruton number Sc = 4*pi*m*zeta/(rho_air*D^2) — small Sc => strong lock-in response.
+- Report: shedding frequency vs wind speed, the lock-in speed window(s) in km/h, and
+  whether the design wind range crosses them; estimate crosswind amplitude/stress range
+  (reference: EN 1991-1-4 section on vortex-induced vibration / ESDU data).
+
+### 8.3 Along-wind dynamic amplification
+- Dynamic amplification factor for buffeting response (gust turbulence) —
+  EN 1991-1-4 structural factor c_s c_d or an equivalent DAF based on the fundamental
+  frequency, mass, and damping. Applies as a multiplier on the static wind load or as
+  a report note when fundamental f is below ~1 Hz.
+
+### 8.4 Fatigue (follow-on, depends on 8.2/8.3)
+- S-N curve data for 6061-T6 / 6063-T6, cyclic stress range from VIV and gust
+  oscillations, cumulative damage (Miner's rule), fatigue life estimate in hours.
+
+### 8.5 Multi-element model (follow-on)
+- Load multiple telescoping elements (e.g., a Yagi boom with several elements) as a
+  combined FE model; reuse per-element geometry/failure checks.
+
+Design notes:
+- Keep dynamic code decoupled: new `elementload/dynamics.py` (mass matrix, eigen,
+  shedding, Scruton) and `elementload/fatigue.py`; report/CLI additions thin.
+- Mass per length already available (`geometry.tube_mass_per_length`).
+- Solver interface unchanged; modal assembly reuses existing node/element/support types.

@@ -100,6 +100,12 @@ to where guys/trussing attach; 0 = none). `StmElement.support_distance` holds it
 the CLI adds a pin support at +ES and -ES from centre on top of the default centre-fixed
 mount (e.g. a1.stm 40m elements: ES = 216.53543 in = 5.5 m -> supports center:fixed,
 5.5:pin, -5.5:pin). Explicit `--support` overrides the file-derived supports.
+Format facts confirmed against the YM6 UI: the ES support is a vertical pipe + dielectric
+rope/thread to both element sides (sag support, modelled as a pin since rotation is free);
+a1.stm's boom is two square tubes (80x80x4 + 70x70x3) and is skipped; header ice IT = 0.
+YM6 custom material yield values (T6 150 MPa, T66 170 MPa, matching the file YS) are NOT
+used for known materials: the CLI keeps the material-table allowables (T6 160 MPa, T66
+190 MPa) for .stm analysis; file YS is only the fallback for unknown/custom MAT labels.
 Open items flagged: local-buckling constant (0.3) and joint overlap stiffness models are
 not yet calibrated against measured telescoping data; geometry not cross-checked against
 a tube catalog. Survival wind speed bisection caps at 500 m/s.

@@ -149,6 +149,30 @@ def test_self_weight_sag_independent_of_wind():
     assert analyze(m0).max_sag == pytest.approx(analyze(m40).max_sag, rel=1e-9)
 
 
+def test_sag_support_does_not_restrain_wind():
+    # a sag (rope) support carries self-weight only: wind stress matches the
+    # center-only model, while the self-weight sag is reduced
+    tubes = [(0.030, 0.002, 0.6), (0.025, 0.002, 0.6)]
+    kw = dict(overlap=0.05, joint="rigid")
+    center_only = build_model(tubes, supports=[("center", "fixed")], wind_speed=40.0, **kw)
+    sag = build_model(tubes, supports=[("center", "fixed"), (0.25, "sag"), (-0.25, "sag")],
+                      wind_speed=40.0, **kw)
+    pin = build_model(tubes, supports=[("center", "fixed"), (0.25, "pin"), (-0.25, "pin")],
+                      wind_speed=40.0, **kw)
+    # wind-only peak stress: sag and center-only agree (rope gives no wind restraint)
+    assert max_wind_stress(sag) == pytest.approx(max_wind_stress(center_only), rel=1e-9)
+    # ...while a rigid pin does restrain the wind
+    assert max_wind_stress(pin) < max_wind_stress(sag)
+    # self-weight sag: the sag support carries it, so sag is reduced below center-only
+    assert analyze(sag).max_sag < analyze(center_only).max_sag
+    # combined stress (wind + weight, orthogonal) is between the two bounds
+    v_center = survival_wind_speed(center_only, mode="yield")
+    v_sag = survival_wind_speed(sag, mode="yield")
+    v_pin = survival_wind_speed(pin, mode="yield")
+    assert v_center < v_sag < v_pin
+    assert v_sag > 1.0
+
+
 def test_natural_frequencies_single_tube_matches_cantilever():
     # single tube clamped at center: each half is a cantilever of length L/2
     D, t, length = 0.030, 0.002, 2.0

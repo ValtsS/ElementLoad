@@ -113,18 +113,42 @@ def self_weight_loads(model):
             for i, seg in enumerate(model.segments)]
 
 
+def _wind_supports(model):
+    """Supports that restrain wind-driven deflection. A 'sag' support (dielectric
+    rope from a boom pipe, nearly horizontal) carries the vertical self-weight but
+    lies in the element/vertical plane and so gives no restraint against the
+    perpendicular wind load."""
+    return [s for s in model.supports if s.kind != "sag"]
+
+
+def _wind_loads(model):
+    return [DistributedLoad(i, wind_load(model.wind_speed, seg.outer_d))
+            for i, seg in enumerate(model.segments)]
+
+
 def analyze(model):
-    u = solve(model.nodes, model.elements, model.supports, model.loads)
-    max_moment = 0.0
-    max_moment_location = 0.0
-    max_stress = 0.0
-    max_stress_location = 0.0
+    if any(s.kind == "sag" for s in model.supports):
+        return _analyze_sag(model)
+    return _analyze(model, model.supports, model.loads)
+
+
+def _allowables(model):
     if model.yield_stress is not None:
         yield_stress = model.yield_stress
         shear_strength = 0.75 * model.yield_stress
     else:
         yield_stress = allowables(model.material)["yield"]
         shear_strength = allowables(model.material)["shear"]
+    return yield_stress, shear_strength
+
+
+def _analyze(model, supports, loads):
+    u = solve(model.nodes, model.elements, supports, loads)
+    max_moment = 0.0
+    max_moment_location = 0.0
+    max_stress = 0.0
+    max_stress_location = 0.0
+    yield_stress, shear_strength = _allowables(model)
     pin_area = model.n_pins * math.pi * model.pin_diameter**2 / 4
 
     max_buckling_factor = 0.0
@@ -133,7 +157,7 @@ def analyze(model):
     pin_location = 0.0
 
     for i, seg in enumerate(model.segments):
-        v_i, m_i, v_j, m_j = element_end_forces(model.elements, i, model.nodes, u, model.loads)
+        v_i, m_i, v_j, m_j = element_end_forces(model.elements, i, model.nodes, u, loads)
         z = tube_section_modulus(seg.outer_d, seg.wall)
         stress = max(abs(m_i), abs(m_j)) / z
         for m, x in ((m_i, seg.x0), (m_j, seg.x1)):
@@ -155,8 +179,72 @@ def analyze(model):
                 pin_location = (seg.x0 if abs(v_i) >= abs(v_j) else seg.x1)
 
     max_deflection = max(abs(w) for w, _ in u)
-    u_sag = solve(model.nodes, model.elements, model.supports, self_weight_loads(model))
+    u_sag = solve(model.nodes, model.elements, supports, self_weight_loads(model))
     max_sag = max(abs(w) for w, _ in u_sag)
+    utilization = {
+        "yield": (max_stress / yield_stress, max_stress_location),
+        "buckling": (max_buckling_factor, buckling_location),
+        "pin_shear": (max_pin_factor, pin_location),
+    }
+    return Analysis(u, max_moment, max_moment_location, max_stress,
+                    max_stress_location, max_deflection, max_sag, utilization)
+
+
+def _analyze_sag(model):
+    """Sag-supported element: wind is resisted only by the non-sag supports, while
+    self-weight is additionally carried by the sag supports. Wind and weight act in
+    perpendicular directions, so the combined moment is the orthogonal sum."""
+    wind_supports = _wind_supports(model)
+    wind_loads = _wind_loads(model)
+    weight_loads = self_weight_loads(model)
+    u_wind = solve(model.nodes, model.elements, wind_supports, wind_loads)
+    u_weight = solve(model.nodes, model.elements, model.supports, weight_loads)
+
+    max_moment = 0.0
+    max_moment_location = 0.0
+    max_stress = 0.0
+    max_stress_location = 0.0
+    yield_stress, shear_strength = _allowables(model)
+    pin_area = model.n_pins * math.pi * model.pin_diameter**2 / 4
+
+    max_buckling_factor = 0.0
+    buckling_location = 0.0
+    max_pin_factor = 0.0
+    pin_location = 0.0
+
+    for i, seg in enumerate(model.segments):
+        v_wi, m_wi, v_wj, m_wj = element_end_forces(model.elements, i, model.nodes,
+                                                    u_wind, wind_loads)
+        v_gi, m_gi, v_gj, m_gj = element_end_forces(model.elements, i, model.nodes,
+                                                    u_weight, weight_loads)
+        m_i = math.hypot(m_wi, m_gi)
+        m_j = math.hypot(m_wj, m_gj)
+        v_i = math.hypot(v_wi, v_gi)
+        v_j = math.hypot(v_wj, v_gj)
+        z = tube_section_modulus(seg.outer_d, seg.wall)
+        stress = max(m_i, m_j) / z
+        for m, x in ((m_i, seg.x0), (m_j, seg.x1)):
+            if m > max_moment:
+                max_moment = m
+                max_moment_location = x
+            if m / z > max_stress:
+                max_stress = m / z
+                max_stress_location = x
+        sigma_cr = local_buckling_stress(seg.outer_d, seg.wall, seg.e_modulus)
+        if stress / sigma_cr > max_buckling_factor:
+            max_buckling_factor = stress / sigma_cr
+            buckling_location = (seg.x0 if m_i >= m_j else seg.x1)
+        if seg.is_overlap:
+            shear = max(v_i, v_j)
+            pin_factor = (shear / pin_area) / shear_strength
+            if pin_factor > max_pin_factor:
+                max_pin_factor = pin_factor
+                pin_location = (seg.x0 if v_i >= v_j else seg.x1)
+
+    u = [(math.hypot(w_w, w_g), 0.0)
+         for (w_w, _), (w_g, _) in zip(u_wind, u_weight)]
+    max_deflection = max(w for w, _ in u)
+    max_sag = max(abs(w) for w, _ in u_weight)
     utilization = {
         "yield": (max_stress / yield_stress, max_stress_location),
         "buckling": (max_buckling_factor, buckling_location),
@@ -194,7 +282,7 @@ def survival_wind_speed(model, mode="yield"):
 def natural_frequencies(model, n_modes=3):
     from elementload.dynamics import natural_frequencies as _nf
     masses = [seg.mass_per_length for seg in model.segments]
-    return _nf(model.nodes, model.elements, model.supports, masses, n_modes)
+    return _nf(model.nodes, model.elements, _wind_supports(model), masses, n_modes)
 
 
 def _half_span(model):
@@ -222,7 +310,7 @@ def vortex_crosswind_response(model, damping=0.01, n_modes=3):
 
     masses = [seg.mass_per_length for seg in model.segments]
     lengths = [model.nodes[e.j].x - model.nodes[e.i].x for e in model.elements]
-    freqs, modes = modal_data(model.nodes, model.elements, model.supports, masses, n_modes)
+    freqs, modes = modal_data(model.nodes, model.elements, _wind_supports(model), masses, n_modes)
     b = model.tube_specs[0][0]
     h = _half_span(model)
     k = MODE_SHAPE_FACTOR_CANTILEVER
@@ -240,7 +328,7 @@ def vortex_crosswind_response(model, damping=0.01, n_modes=3):
         y_max = crosswind_amplitude(b, sc, c_lat, k_w, k)
         loads = vortex_inertia_load(masses, f, mode_w, y_max)
         dloads = [DistributedLoad(j, q) for j, q in enumerate(loads)]
-        u = solve(model.nodes, model.elements, model.supports, dloads)
+        u = solve(model.nodes, model.elements, _wind_supports(model), dloads)
         peak_stress = 0.0
         for j, seg in enumerate(model.segments):
             _, m_i, _, m_j = element_end_forces(model.elements, j, model.nodes, u, dloads)
@@ -273,7 +361,7 @@ def along_wind_dynamic_factor(model, damping=0.01, height=10.0, z_0=0.05, wind_s
     v_m = wind_speed if wind_speed is not None else model.wind_speed
     masses = [seg.mass_per_length for seg in model.segments]
     lengths = [model.nodes[e.j].x - model.nodes[e.i].x for e in model.elements]
-    freqs, modes = modal_data(model.nodes, model.elements, model.supports, masses, n_modes=1)
+    freqs, modes = modal_data(model.nodes, model.elements, _wind_supports(model), masses, n_modes=1)
     f1 = freqs[0]
     b = model.tube_specs[0][0]
     h = max(n.x for n in model.nodes) - min(n.x for n in model.nodes)
@@ -289,9 +377,8 @@ def along_wind_dynamic_factor(model, damping=0.01, height=10.0, z_0=0.05, wind_s
 
 def max_wind_stress(model):
     """Peak bending stress (Pa) from the wind-only load at the design wind speed."""
-    loads = [DistributedLoad(i, wind_load(model.wind_speed, seg.outer_d))
-             for i, seg in enumerate(model.segments)]
-    u = solve(model.nodes, model.elements, model.supports, loads)
+    loads = _wind_loads(model)
+    u = solve(model.nodes, model.elements, _wind_supports(model), loads)
     peak = 0.0
     for i, seg in enumerate(model.segments):
         _, m_i, _, m_j = element_end_forces(model.elements, i, model.nodes, u, loads)

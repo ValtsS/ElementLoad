@@ -17,7 +17,7 @@ def _tube_spec(s):
 
 def _support_spec(s):
     pos, _, kind = s.partition(":")
-    if kind not in ("fixed", "pin", "roller"):
+    if kind not in ("fixed", "pin", "roller", "sag"):
         raise argparse.ArgumentTypeError(f"expected pos:kind got {s!r}")
     if pos != "center":
         try:
@@ -211,6 +211,10 @@ def main(argv=None):
                         help="reference height above ground for turbulence (default 10, or the .stm H)")
     parser.add_argument("--z0", type=float, default=0.05, metavar="M",
                         help="terrain roughness length z0 (default 0.05, terrain category II)")
+    parser.add_argument("--es-model", choices=("rigid", "sag"), default="rigid",
+                        help="how the .stm ES element support is modelled: rigid pin "
+                             "(default) or sag rope (restrains self-weight only, "
+                             "no wind restraint)")
     args = parser.parse_args(argv)
 
     if args.stm is not None:
@@ -259,7 +263,8 @@ def _main_stm(args, parser):
         if supports is None:
             supports = [("center", "fixed")]
             if el.support_distance > 0.0:
-                supports += [(el.support_distance, "pin"), (-el.support_distance, "pin")]
+                es_kind = "pin" if args.es_model == "rigid" else "sag"
+                supports += [(el.support_distance, es_kind), (-el.support_distance, es_kind)]
         model = build_model_from_geometry(
             element_tube_extents(el), args.joint or "rigid",
             supports, wind, mat or el.material,

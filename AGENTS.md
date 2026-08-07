@@ -97,11 +97,21 @@ al6060-t6/al6060-t66 (S-N curves in `fatigue.py` SN_DATA); unknown labels skip f
 with a NOTE in the report.
 The `ES` field on an element line is the Element Support Distance (distance from the boom
 to where guys/trussing attach; 0 = none). `StmElement.support_distance` holds it in metres;
-the CLI adds a pin support at +ES and -ES from centre on top of the default centre-fixed
+the CLI adds a support at +ES and -ES from centre on top of the default centre-fixed
 mount (e.g. a1.stm 40m elements: ES = 216.53543 in = 5.5 m -> supports center:fixed,
 5.5:pin, -5.5:pin). Explicit `--support` overrides the file-derived supports.
 Format facts confirmed against the YM6 UI: the ES support is a vertical pipe + dielectric
-rope/thread to both element sides (sag support, modelled as a pin since rotation is free);
+rope/thread to both element sides (sag support; rotation is free, so it behaves like a
+pin only for loads in the sag plane). Two ES models are available via `--es-model`
+(default `rigid`): `pin` restrains the wind load like a rigid truss; `sag` restrains
+self-weight only (the rope is nearly horizontal — at ES = 5.5 m with a ~1 m pipe the
+angle is ~10 deg, so it gives negligible wind restraint) and drops the ES supports for
+all wind-driven results (static wind stress, natural frequencies, VIV, along-wind
+dynamic factor, fatigue). `sag` is implemented in report.py as `_analyze_sag`: wind
+and self-weight solves use different support sets and are combined orthogonally
+(`math.hypot`), since wind acts in one plane and the sag rope in the perpendicular
+plane. Survival wind speed ordering: center-only < sag < rigid pin (a1.stm 40m RE
+yield: 76.0 / 91.7 / 173.5 km/h).
 a1.stm's boom is two square tubes (80x80x4 + 70x70x3) and is skipped; header ice IT = 0.
 YM6 custom material yield values (T6 150 MPa, T66 170 MPa, matching the file YS) are NOT
 used for known materials: the CLI keeps the material-table allowables (T6 160 MPa, T66

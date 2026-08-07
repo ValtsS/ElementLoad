@@ -101,6 +101,25 @@ def test_cli_stm_support_distance_applied():
     assert "yield:" in result.stdout
 
 
+def test_cli_stm_es_sag_model():
+    # --es-model sag treats the ES supports as tension-only rope: they carry
+    # self-weight but not wind, so the survival wind speed drops vs the pin model
+    code = ("from elementload.cli import main; "
+            "main(['--stm', 'data/a1.stm', '--element', '40m RE'])")
+    result_pin = subprocess.run([sys.executable, "-c", code],
+                                capture_output=True, text=True, timeout=120)
+    assert result_pin.returncode == 0, result_pin.stderr
+    code_sag = ("from elementload.cli import main; "
+                "main(['--stm', 'data/a1.stm', '--element', '40m RE', '--es-model', 'sag'])")
+    result_sag = subprocess.run([sys.executable, "-c", code_sag],
+                                capture_output=True, text=True, timeout=120)
+    assert result_sag.returncode == 0, result_sag.stderr
+    assert "Supports: center:fixed, 5.5:sag, -5.5:sag" in result_sag.stdout
+    v_pin = float([l for l in result_pin.stdout.splitlines() if l.strip().startswith("yield:")][0].split("km/h")[0].split()[-1])
+    v_sag = float([l for l in result_sag.stdout.splitlines() if l.strip().startswith("yield:")][0].split("km/h")[0].split()[-1])
+    assert v_sag < v_pin
+
+
 def test_cli_stm_unknown_element_rejected():
     code = ("from elementload.cli import main; "
             "main(['--stm', 'data/mechanical2.stm', '--element', 'nope'])")

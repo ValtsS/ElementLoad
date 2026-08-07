@@ -26,6 +26,17 @@ from elementload.dynamics import (
     crosswind_amplitude,
     correlation_length_factor_cantilever,
     lock_in_window,
+    turbulence_intensity,
+    turbulence_length_scale,
+    reduced_frequency,
+    wind_spectrum,
+    aerodynamic_admittance,
+    background_factor,
+    resonance_response_factor,
+    peak_factor,
+    structural_factor,
+    log_decrement_structural,
+    aerodynamic_log_decrement,
 )
 
 E = 69.0e9
@@ -255,3 +266,88 @@ def test_vortex_response_base_moment_closed_form():
     # per-element hand-sum: M = sum(q_k * L * x_bar_k)
     hand = sum(q * (h / n) * (xs[i] + h / (2 * n)) for i, q in enumerate(loads))
     assert m_base == pytest.approx(hand, rel=1e-9)
+
+
+def test_turbulence_intensity_golden():
+    # I_v = k_I/(c_0 ln(z/z0)) at z=10 m, terrain cat II (z0=0.05 m)
+    assert turbulence_intensity(10.0, 0.05) == pytest.approx(1.0 / math.log(200.0), rel=1e-12)
+
+
+def test_turbulence_length_scale_golden():
+    # L = 300 (z/200)^0.67; 300 m at z=200 m
+    assert turbulence_length_scale(200.0) == pytest.approx(300.0, rel=1e-12)
+    assert turbulence_length_scale(10.0) == pytest.approx(300.0 * (10.0 / 200.0) ** 0.67, rel=1e-12)
+
+
+def test_reduced_frequency_golden():
+    assert reduced_frequency(8.0, 40.0, 30.0) == pytest.approx(8.0 * 40.0 / 30.0, rel=1e-12)
+
+
+def test_wind_spectrum_golden():
+    # S_L = 6.8 f_L/(1+10.2 f_L)^(5/3), zero at f_L=0, ~0.1213 at f_L=1
+    assert wind_spectrum(0.0) == pytest.approx(0.0)
+    assert wind_spectrum(1.0) == pytest.approx(6.8 / (11.2 ** (5.0 / 3.0)), rel=1e-12)
+
+
+def test_aerodynamic_admittance_golden():
+    # R(0) = 1; R(1) = 1 - (1-e^-2)/2; large eta -> 1/eta
+    assert aerodynamic_admittance(0.0) == pytest.approx(1.0, rel=1e-12)
+    assert aerodynamic_admittance(1.0) == pytest.approx(1.0 - (1.0 - math.exp(-2.0)) / 2.0, rel=1e-12)
+    assert aerodynamic_admittance(100.0) == pytest.approx(
+        0.01 - (1.0 - math.exp(-200.0)) / 20000.0, rel=1e-12)
+
+
+def test_background_factor_golden():
+    # B^2 = 1/(1 + 0.9 ((b+h)/L)^0.63); large structure -> smaller B^2
+    b2 = background_factor(0.03, 2.0, 40.0)
+    assert b2 == pytest.approx(1.0 / (1.0 + 0.9 * ((2.03 / 40.0) ** 0.63)), rel=1e-12)
+    assert 0.0 < b2 < 1.0
+
+
+def test_peak_factor_golden():
+    # k_p = sqrt(2 ln(nu T)) + 0.6/sqrt(2 ln(nu T)) at nu=1 Hz, T=600 s
+    kp = peak_factor(1.0)
+    assert kp == pytest.approx(3.7446, rel=1e-3)
+    assert kp >= 3.0
+    # never below 3 (B.2(3) "whichever is larger")
+    assert peak_factor(0.001) == pytest.approx(3.0)
+
+
+def test_resonance_response_factor_assembles():
+    # R^2 = (pi^2/2 delta) S_L R_h R_b with eta_h = 4.6 h/L f_L etc.
+    width, height, freq, v_m, L, delta = 0.03, 2.0, 8.0, 30.0, 40.0, 0.063
+    f_L = freq * L / v_m
+    s_l = wind_spectrum(f_L)
+    r_h = aerodynamic_admittance(4.6 * height / L * f_L)
+    r_b = aerodynamic_admittance(4.6 * width / L * f_L)
+    expected = (math.pi**2 / (2 * delta)) * s_l * r_h * r_b
+    assert resonance_response_factor(width, height, freq, v_m, L, delta) == pytest.approx(expected, rel=1e-12)
+    # more damping -> smaller resonance contribution
+    assert resonance_response_factor(width, height, freq, v_m, L, 0.126) < expected
+
+
+def test_structural_factor_limits():
+    # no turbulence (k_I=0) -> c_s = c_d = c_s*c_d = 1
+    r = structural_factor(10.0, 0.03, 2.0, 8.0, 30.0, 0.05, 0.063, k_I=0.0)
+    assert r["c_s_cd"] == pytest.approx(1.0, rel=1e-12)
+    assert r["c_s"] == pytest.approx(1.0, rel=1e-12)
+    assert r["c_d"] == pytest.approx(1.0, rel=1e-12)
+    # assembled c_s*c_d reproduces eq 6.1 from the components
+    r = structural_factor(10.0, 0.03, 2.0, 8.0, 30.0, 0.05, 0.063)
+    assert r["c_s_cd"] == pytest.approx(
+        (1 + 2 * r["peak_factor"] * r["turbulence_intensity"] * math.sqrt(r["background"] + r["resonance"]))
+        / (1 + 7 * r["turbulence_intensity"]), rel=1e-12)
+    assert r["c_s"] == pytest.approx(
+        (1 + 7 * r["turbulence_intensity"] * r["background"])
+        / (1 + 7 * r["turbulence_intensity"]), rel=1e-12)
+    assert r["c_d"] == pytest.approx(r["c_s_cd"] / r["c_s"], rel=1e-12)
+    # stiffer structure (higher frequency) -> less resonance -> c_s*c_d closer to c_s
+    r_fast = structural_factor(10.0, 0.03, 2.0, 40.0, 30.0, 0.05, 0.063)
+    assert r_fast["resonance"] < r["resonance"]
+
+
+def test_log_decrement_golden():
+    assert log_decrement_structural(0.01) == pytest.approx(2 * math.pi * 0.01, rel=1e-12)
+    # F.18: delta_a = c_f rho b v_m / (2 n_1 m_e)
+    da = aerodynamic_log_decrement(1.2, 1.225, 0.03, 30.0, 8.0, 0.34)
+    assert da == pytest.approx(1.2 * 1.225 * 0.03 * 30.0 / (2 * 8.0 * 0.34), rel=1e-12)

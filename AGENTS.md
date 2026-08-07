@@ -139,6 +139,25 @@ Physical targets (all testable against closed-form or an independent solver):
 ### 8.4 Fatigue (follow-on, depends on 8.2/8.3)
 - S-N curve data for 6061-T6 / 6063-T6, cyclic stress range from VIV and gust
   oscillations, cumulative damage (Miner's rule), fatigue life estimate in hours.
+  - S-N (R = -1, stress AMPLITUDE): closed-form fit to 6061-T6 data of
+    Yahr (1997, ASME JPVT) S_a = A/sqrt(N) + S_e with A = 14 479 MPa,
+    S_e = 96.5 MPa (14 ksi); treated as infinite life below S_e. 6063-T6 anchored
+    to the ASM fatigue strength 69 MPa, A scaled by 69/96.5 (approximation).
+  - `elementload/fatigue.py`: `stress_amplitude_at`, `cycles_to_failure`,
+    `stress_range_to_failure` (amplitude = range/2), `damage_fraction`,
+    `damage_per_hour`, `miner_life_hours`; validated against the published curve
+    points (241.29 MPa @ 1e4, 110.979 MPa @ 1e6) and life-scaling identities.
+  - Report `fatigue_report` combines two continuous cyclic sources: VIV lock-in
+    of the FUNDAMENTAL mode (stress range from 8.2) and gust buffeting resonance
+    (range = 2 * sigma_mean * 2 k_p I_v (sqrt(B^2+R^2) - sqrt(B^2))/(1+7 I_v),
+    sigma_mean = wind-only max bending stress at the design wind, from 8.3).
+    Cycles/s = the source frequency; D = sum of n/N per hour; life = 1/D (hours).
+    VIV is limited to the fundamental mode because the E.7 factors K (Table E.5)
+    and K_w ((s/h)^2 shape) are only defined for the fundamental; applying them to
+    higher modes overestimates the stress (open item).
+  — done (fatigue.py + fatigue_report + CLI Fatigue block)
+  Open items: no fatigue concentration factor (Kt); welded-joint/mean-stress
+  knock-downs (Yahr factor of 2/20) not applied; 6063-T6 curve is a scaled estimate.
 
 ### 8.5 Multi-element model (follow-on)
 - Load multiple telescoping elements (e.g., a Yagi boom with several elements) as a

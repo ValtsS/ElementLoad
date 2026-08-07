@@ -123,6 +123,26 @@ def render_report(model, result, wind_speed, damping=0.01, height=10.0, z_0=0.05
             "along-wind dynamic amplification is significant"
         )
     lines.append("")
+    from elementload.report import fatigue_report
+    fat = fatigue_report(model, damping=damping, height=height, z_0=z_0)
+    lines.append(f"Fatigue (Miner's rule, R = -1, S-N {model.material}):")
+    for s in fat["sources"]:
+        if s["damage_per_hour"] > 0.0:
+            life = 1.0 / s["damage_per_hour"]
+            lines.append(
+                f"  {s['name']:>22}: range = {s['stress_range'] / 1e6:6.1f} MPa @ "
+                f"{s['frequency']:.2f} Hz -> life {life:.3g} h"
+            )
+        else:
+            lines.append(
+                f"  {s['name']:>22}: range = {s['stress_range'] / 1e6:6.1f} MPa @ "
+                f"{s['frequency']:.2f} Hz -> no fatigue damage (below endurance)"
+            )
+    if fat["life_hours"] == float("inf"):
+        lines.append("  combined life: unlimited (all sources below endurance)")
+    else:
+        lines.append(f"  combined Miner life: {fat['life_hours']:.3g} h")
+    lines.append("")
     lines.append("Vortex shedding crosswind response (EN 1991-1-4 Annex E, approach 1):")
     v_resp = vortex_crosswind_response(model, damping=damping, n_modes=3)
     design_kmh = wind_speed * KMH_PER_MPS

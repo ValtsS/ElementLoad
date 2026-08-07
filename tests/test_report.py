@@ -9,6 +9,8 @@ from elementload.report import (
     natural_frequencies,
     vortex_crosswind_response,
     along_wind_dynamic_factor,
+    max_wind_stress,
+    fatigue_report,
 )
 from elementload.dynamics import critical_wind_speed, scruton_number, crosswind_amplitude
 from elementload.geometry import tube_inertia, tube_section_modulus, tube_area
@@ -210,3 +212,36 @@ def test_along_wind_dynamic_factor():
     r2 = along_wind_dynamic_factor(model, damping=0.03, height=10.0, z_0=0.05)
     assert r2["resonance"] < r["resonance"]
     assert r2["c_s_cd"] < r["c_s_cd"]
+
+
+def test_fatigue_report_sources_and_consistency():
+    tubes = [(0.030, 0.002, 2.0)]
+    model = build_model(tubes, overlap=0.0, joint="rigid", supports=[("center", "fixed")], wind_speed=40.0)
+    fat = fatigue_report(model, damping=0.01, height=10.0, z_0=0.05)
+    names = [s["name"] for s in fat["sources"]]
+    assert "VIV mode 1 lock-in" in names
+    assert "gust buffeting" in names
+    # total damage rate = sum of the per-source rates
+    assert fat["damage_per_hour"] == pytest.approx(
+        sum(s["damage_per_hour"] for s in fat["sources"]), rel=1e-12)
+    # this light element vibrates below the 96.5 MPa endurance limit -> unlimited life
+    assert fat["life_hours"] == float("inf")
+    assert all(s["damage_per_hour"] == 0.0 for s in fat["sources"])
+
+
+def test_fatigue_report_gust_range_matches_formula():
+    # gust range = 2 * sigma_mean * 2 k_p I_v (sqrt(B^2+R^2) - sqrt(B^2))/(1+7 I_v)
+    tubes = [(0.030, 0.002, 2.0)]
+    model = build_model(tubes, overlap=0.0, joint="rigid", supports=[("center", "fixed")], wind_speed=40.0)
+    fat = fatigue_report(model, damping=0.01, height=10.0, z_0=0.05)
+    daf = along_wind_dynamic_factor(model, damping=0.01, height=10.0, z_0=0.05)
+    gust = next(s for s in fat["sources"] if s["name"] == "gust buffeting")
+    iv, k_p = daf["turbulence_intensity"], daf["peak_factor"]
+    b2, r2 = daf["background"], daf["resonance"]
+    expected = 2.0 * max_wind_stress(model) * 2.0 * k_p * iv * (
+        (b2 + r2) ** 0.5 - b2 ** 0.5) / (1.0 + 7.0 * iv)
+    assert gust["stress_range"] == pytest.approx(expected, rel=1e-12)
+    # the VIV source range comes straight from the crosswind response
+    viv = next(s for s in fat["sources"] if s["name"].startswith("VIV mode 1"))
+    resp = vortex_crosswind_response(model, damping=0.01, n_modes=3)[0]
+    assert viv["stress_range"] == pytest.approx(resp["stress_range"], rel=1e-12)

@@ -247,6 +247,54 @@ def along_wind_dynamic_factor(model, damping=0.01, height=10.0, z_0=0.05, wind_s
     return r
 
 
+def max_wind_stress(model):
+    """Peak bending stress (Pa) from the wind-only load at the design wind speed."""
+    loads = [DistributedLoad(i, wind_load(model.wind_speed, seg.outer_d))
+             for i, seg in enumerate(model.segments)]
+    u = solve(model.nodes, model.elements, model.supports, loads)
+    peak = 0.0
+    for i, seg in enumerate(model.segments):
+        _, m_i, _, m_j = element_end_forces(model.elements, i, model.nodes, u, loads)
+        z = tube_section_modulus(seg.outer_d, seg.wall)
+        peak = max(peak, abs(m_i) / z, abs(m_j) / z)
+    return peak
+
+
+def fatigue_report(model, damping=0.01, height=10.0, z_0=0.05):
+    """Cyclic stress sources (VIV lock-in of the fundamental mode + gust buffeting
+    resonance) and combined Miner fatigue life in hours. Each source is assumed to
+    act continuously; VIV life is therefore the life under sustained lock-in.
+    VIV is limited to the fundamental mode: the E.7 amplitude factors (K from Table
+    E.5, K_w from the (s/h)^2 shape) are only defined for the fundamental mode."""
+    from elementload.fatigue import damage_per_hour, miner_life_hours
+    sources = []
+    r = vortex_crosswind_response(model, damping, n_modes=1)[0]
+    if r["stress_range"] > 0.0:
+        sources.append(dict(
+            name="VIV mode 1 lock-in",
+            stress_range=r["stress_range"],
+            frequency=r["frequency"],
+            damage_per_hour=damage_per_hour(r["stress_range"], r["frequency"], model.material),
+        ))
+    daf = along_wind_dynamic_factor(model, damping, height, z_0)
+    iv = daf["turbulence_intensity"]
+    k_p = daf["peak_factor"]
+    b2, r2 = daf["background"], daf["resonance"]
+    sig_mean = max_wind_stress(model)
+    resonant_amp = sig_mean * 2.0 * k_p * iv * (math.sqrt(b2 + r2) - math.sqrt(b2)) / (1.0 + 7.0 * iv)
+    gust_range = 2.0 * resonant_amp
+    sources.append(dict(
+        name="gust buffeting",
+        stress_range=gust_range,
+        frequency=daf["frequency"],
+        damage_per_hour=damage_per_hour(gust_range, daf["frequency"], model.material),
+    ))
+    total = sum(s["damage_per_hour"] for s in sources)
+    cases = [(s["stress_range"], s["frequency"]) for s in sources]
+    return dict(sources=sources, damage_per_hour=total,
+                life_hours=miner_life_hours(cases, model.material))
+
+
 def _model_mass(model):
     # length-weighted average mass per length (representative of the element)
     total_length = sum(s.x1 - s.x0 for s in model.segments)

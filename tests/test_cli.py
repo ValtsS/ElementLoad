@@ -60,6 +60,8 @@ def test_cli_subprocess_acceptance():
     assert "reference height 15 m" in result.stdout
     assert "c_s*c_d" in result.stdout
     assert "delta_s" in result.stdout
+    assert "Fatigue" in result.stdout
+    assert "Miner" in result.stdout
 
 
 def test_cli_invalid_tube_arg():

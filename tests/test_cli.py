@@ -120,6 +120,22 @@ def test_cli_stm_es_sag_model():
     assert v_sag < v_pin
 
 
+def test_cli_stm_es_model_both_default():
+    # the default --es-model both reports rigid-pin and sag results side by side
+    code = ("from elementload.cli import main; "
+            "main(['--stm', 'data/a1.stm', '--element', '40m RE'])")
+    result = subprocess.run([sys.executable, "-c", code],
+                            capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    assert "ES support model comparison" in out
+    assert "rigid pin" in out and "sag rope" in out
+    # both survival wind speeds are reported
+    assert "yield" in out
+    # the full detail report is the rigid-pin model
+    assert "Supports: center:fixed, 5.5:pin, -5.5:pin" in out
+
+
 def test_cli_stm_unknown_element_rejected():
     code = ("from elementload.cli import main; "
             "main(['--stm', 'data/mechanical2.stm', '--element', 'nope'])")

@@ -1,7 +1,8 @@
 import argparse
 import math
 
-from elementload.report import build_model, analyze, survival_wind_speed
+from elementload.report import build_model, analyze, survival_wind_speed, build_model_from_geometry
+from elementload.stm import read_stm, element_tube_extents
 from elementload.solver import internal_moment
 
 KMH_PER_MPS = 3.6
@@ -181,6 +182,61 @@ def render_report(model, result, wind_speed, damping=0.01, height=10.0, z_0=0.05
     return "\n".join(lines)
 
 
+def render_es_comparison(analyses, wind_speed):
+    """Side-by-side summary of the rigid-pin and sag ES support models.
+
+    `analyses` is a list of (label, model, result) with label "pin" or "sag".
+    Shows max moment/stress/deflection and per-mode survival wind speeds for both."""
+    names = {"pin": "rigid pin", "sag": "sag rope"}
+    lines = []
+    lines.append(f"ES support model comparison (analysis at {wind_speed:.1f} m/s "
+                 f"= {wind_speed * KMH_PER_MPS:.0f} km/h):")
+    labels = [names[l] for l, _, _ in analyses]
+    lines.append(f"  {'':22}{labels[0]:>16}{labels[1]:>16}")
+    for name, get in (("max moment (N.m)", lambda r: r.max_moment),
+                      ("max stress (MPa)", lambda r: r.max_stress / 1e6),
+                      ("max defl (mm)", lambda r: r.max_deflection * 1000)):
+        row = f"  {name:<20}"
+        for _, _, r in analyses:
+            row += f"{get(r):16.1f}"
+        lines.append(row)
+    lines.append("  survival wind speed (km/h):")
+    for mode in _MODES:
+        row = f"    {mode:<16}"
+        for _, model, _ in analyses:
+            v = survival_wind_speed(model, mode=mode) * KMH_PER_MPS
+            row += f"{v:16.1f}"
+        lines.append(row)
+    row = f"    {'limiting':<16}"
+    for _, model, _ in analyses:
+        survivals = {m: survival_wind_speed(model, mode=m) for m in _MODES}
+        limiting = min(survivals, key=survivals.get)
+        row += f"{limiting:>16}"
+    lines.append(row)
+    return "\n".join(lines)
+
+
+def _analyze_es_pair(el, wind, args, parser):
+    """Build and analyze the rigid-pin and sag models for an .stm element with an ES
+    support. Returns (labels, models, results) aligned lists, label "pin" or "sag"."""
+    mat = args.material or el.material_key
+    yield_stress = None if mat is not None else el.yield_stress
+    labels, models, results = [], [], []
+    for label in ("pin", "sag"):
+        supports = [("center", "fixed")]
+        if el.support_distance > 0.0:
+            es_kind = "pin" if label == "pin" else "sag"
+            supports += [(el.support_distance, es_kind), (-el.support_distance, es_kind)]
+        model = build_model_from_geometry(
+            element_tube_extents(el), args.joint or "rigid",
+            supports, wind, mat or el.material,
+            args.pin_diameter, args.n_pins, yield_stress)
+        labels.append(label)
+        models.append(model)
+        results.append(analyze(model))
+    return labels, models, results
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="elementload",
@@ -211,10 +267,10 @@ def main(argv=None):
                         help="reference height above ground for turbulence (default 10, or the .stm H)")
     parser.add_argument("--z0", type=float, default=0.05, metavar="M",
                         help="terrain roughness length z0 (default 0.05, terrain category II)")
-    parser.add_argument("--es-model", choices=("rigid", "sag"), default="rigid",
-                        help="how the .stm ES element support is modelled: rigid pin "
-                             "(default) or sag rope (restrains self-weight only, "
-                             "no wind restraint)")
+    parser.add_argument("--es-model", choices=("rigid", "sag", "both"), default="both",
+                        help="how the .stm ES element support is modelled: rigid pin, "
+                             "sag rope (restrains self-weight only, no wind restraint), "
+                             "or both (default: report the two results side by side)")
     args = parser.parse_args(argv)
 
     if args.stm is not None:
@@ -236,8 +292,6 @@ def main(argv=None):
 
 
 def _main_stm(args, parser):
-    from elementload.stm import read_stm, element_tube_extents
-    from elementload.report import build_model_from_geometry
     stm = read_stm(args.stm)
     print(f"YagiMechanical file: {args.stm}")
     print(f"Antenna: {stm.antenna}, height H = {stm.height:.2f} m, design wind "
@@ -272,8 +326,19 @@ def _main_stm(args, parser):
         result = analyze(model)
         title = f"{el.name} ({el.freq / 1e6:.2f} MHz, mount {el.mount_pos * 1000:.0f} mm)"
         print()
-        print(render_report(model, result, wind, damping=args.damping,
-                            height=height, z_0=args.z0, title=title))
+        if args.es_model == "both" and el.support_distance > 0.0 and args.support is None:
+            _, models, results = _analyze_es_pair(el, wind, args, parser)
+            analyses = list(zip(("pin", "sag"), models, results))
+            print(render_es_comparison(analyses, wind))
+            print()
+            # the full detail report shows the rigid-pin model; the sag summary
+            # is already in the comparison block above
+            model, result = models[0], results[0]
+            print(render_report(model, result, wind, damping=args.damping,
+                                height=height, z_0=args.z0, title=title))
+        else:
+            print(render_report(model, result, wind, damping=args.damping,
+                                height=height, z_0=args.z0, title=title))
 
 
 if __name__ == "__main__":

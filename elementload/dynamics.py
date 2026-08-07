@@ -33,7 +33,10 @@ def assemble_mass(nodes, elements, masses):
     return m_global
 
 
-def natural_frequencies(nodes, elements, supports, masses, n_modes=3):
+def modal_data(nodes, elements, supports, masses, n_modes=3):
+    """Natural frequencies (Hz) and mass-normalized-free mode shapes.
+    Each mode shape is a full 2*N vector with the transverse displacement
+    normalized to 1 at the point of maximum displacement (EN 1991-1-4 E.6)."""
     ndof = 2 * len(nodes)
     k_global = assemble_stiffness(nodes, elements)
     m_global = assemble_mass(nodes, elements, masses)
@@ -41,8 +44,46 @@ def natural_frequencies(nodes, elements, supports, masses, n_modes=3):
     free = ~constrained
     k_red = k_global[np.ix_(free, free)]
     m_red = m_global[np.ix_(free, free)]
-    w2, _ = eigh(k_red, m_red)
-    return np.sqrt(w2[:n_modes]) / (2 * np.pi)
+    w2, vecs = eigh(k_red, m_red)
+    w2 = w2[:n_modes]
+    vecs = vecs[:, :n_modes]
+    freqs = np.sqrt(w2) / (2 * np.pi)
+    modes = np.zeros((n_modes, ndof))
+    for i in range(n_modes):
+        vec = np.zeros(ndof)
+        vec[free] = vecs[:, i]
+        peak = np.max(np.abs(vec[0::2]))
+        if peak > 0.0:
+            vec = vec / peak
+        modes[i] = vec
+    return freqs, modes
+
+
+def natural_frequencies(nodes, elements, supports, masses, n_modes=3):
+    freqs, _ = modal_data(nodes, elements, supports, masses, n_modes=n_modes)
+    return freqs
+
+
+def equivalent_mass(masses, lengths, mode_w):
+    """EN 1991-1-4 F.14: m_e = sum(m_i * int phi^2 ds) / sum(int phi^2 ds)."""
+    num = 0.0
+    den = 0.0
+    for m, L, w_a, w_b in zip(masses, lengths, mode_w[:-1], mode_w[1:]):
+        phi2 = (w_a**2 + w_b**2) / 2.0
+        num += m * phi2 * L
+        den += phi2 * L
+    return num / den
+
+
+def vortex_inertia_load(masses, frequency, mode_w, y_max):
+    """EN 1991-1-4 E.6: peak transverse load per unit length on each element,
+    F = m * (2*pi*f)^2 * phi * y_max, phi averaged over the element."""
+    omega = 2 * np.pi * frequency
+    loads = []
+    for m, w_a, w_b in zip(masses, mode_w[:-1], mode_w[1:]):
+        phi = (w_a + w_b) / 2.0
+        loads.append(m * omega**2 * phi * y_max)
+    return loads
 
 
 def shedding_frequency(wind_speed, outer_d):

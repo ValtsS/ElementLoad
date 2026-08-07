@@ -2,10 +2,21 @@ import math
 
 import pytest
 
-from elementload.solver import Node, Element, Support, assemble_stiffness
+from elementload.solver import (
+    Node,
+    Element,
+    Support,
+    DistributedLoad,
+    assemble_stiffness,
+    solve,
+    internal_moment,
+)
 from elementload.dynamics import (
     assemble_mass,
     natural_frequencies,
+    modal_data,
+    equivalent_mass,
+    vortex_inertia_load,
     mass_per_length,
     shedding_frequency,
     critical_wind_speed,
@@ -167,3 +178,80 @@ def test_lock_in_window():
     lo, hi = lock_in_window(v)
     assert lo == pytest.approx(v / 1.25)
     assert hi == pytest.approx(v / 0.83)
+
+
+def test_modal_data_normalizes_mode():
+    # mode shapes normalized so max transverse displacement = 1 (E.6), tip DOF peaks
+    L = 2.0
+    m = 1.0
+    I = 1.0e-8
+    n = 12
+    nodes = [Node(x) for x in (i * L / n for i in range(n + 1))]
+    elements = [Element(i, i + 1, E, I) for i in range(n)]
+    supports = [Support(0, "fixed")]
+    freqs, modes = modal_data(nodes, elements, supports, [m] * n, n_modes=3)
+    f = natural_frequencies(nodes, elements, supports, [m] * n, n_modes=3)
+    assert list(freqs) == pytest.approx(list(f), rel=1e-12)
+    for i in range(3):
+        w = modes[i][0::2]
+        assert abs(w[0]) == pytest.approx(0.0, abs=1e-12)  # clamped
+        assert max(abs(v) for v in w) == pytest.approx(1.0, rel=1e-9)
+        assert abs(w[-1]) == pytest.approx(1.0, rel=1e-3)  # tip near max displacement
+
+
+def test_equivalent_mass_analytic_modes():
+    # F.14 m_e = sum(m_i int phi^2 ds)/sum(int phi^2 ds)
+    h = 1.0
+    n = 1000
+    L = h / n
+    lengths = [L] * n
+    # rigid translation mode phi=1 -> m_e = m
+    mode_rigid = [1.0] * (n + 1)
+    assert equivalent_mass([2.0] * n, lengths, mode_rigid) == pytest.approx(2.0, rel=1e-9)
+    # uniform mass, mode phi=(s/h)^2 -> m_e = m (integral of phi^2 cancels)
+    xs = [i * L for i in range(n + 1)]
+    mode_sq = [(x / h) ** 2 for x in xs]
+    assert equivalent_mass([2.0] * n, lengths, mode_sq) == pytest.approx(2.0, rel=1e-6)
+    # non-uniform m(s) = m0*(1+s/h), phi=(s/h)^2:
+    #   m_e = m0 * int(1+u) u^4 du / int u^4 du = m0*(11/30)/(1/5) = m0*11/6
+    m0 = 2.0
+    masses = [m0 * (1 + xs[i] / h) for i in range(n)]
+    assert equivalent_mass(masses, lengths, mode_sq) == pytest.approx(m0 * 11 / 6, rel=1e-3)
+
+
+def test_vortex_inertia_load_e6_formula():
+    # F_w = m (2 pi f)^2 phi y_max, phi averaged over the element
+    m = 1.5
+    f = 4.0
+    y_max = 0.01
+    mode_w = [0.0, 0.25, 1.0]  # two elements, mid phi = 0.125 and 0.625
+    q = vortex_inertia_load([m, m], f, mode_w, y_max)
+    omega = 2 * math.pi * f
+    assert q[0] == pytest.approx(m * omega**2 * 0.125 * y_max, rel=1e-12)
+    assert q[1] == pytest.approx(m * omega**2 * 0.625 * y_max, rel=1e-12)
+
+
+def test_vortex_response_base_moment_closed_form():
+    # E.6-equivalent static load q(s)=m (2 pi f)^2 (s/h)^2 y_max on a uniform
+    # cantilever -> base moment M = m w^2 y_max h^2/4 (exact integral)
+    h = 1.0
+    m = 1.0
+    I = 1.0e-8
+    y_max = 0.01
+    n = 60
+    xs = [i * h / n for i in range(n + 1)]
+    nodes = [Node(x) for x in xs]
+    elements = [Element(i, i + 1, E, I) for i in range(n)]
+    supports = [Support(0, "fixed")]
+    freqs, _ = modal_data(nodes, elements, supports, [m] * n, n_modes=1)
+    w = 2 * math.pi * freqs[0]
+    mode_w = [(x / h) ** 2 for x in xs]  # analytic mode, normalized to 1 at tip
+    loads = vortex_inertia_load([m] * n, freqs[0], mode_w, y_max)
+    dloads = [DistributedLoad(i, q) for i, q in enumerate(loads)]
+    u = solve(nodes, elements, supports, dloads)
+    m_base = abs(internal_moment(elements, 0, nodes, u, dloads, 0.0))
+    closed = m * w**2 * y_max * h**2 / 4.0
+    assert m_base == pytest.approx(closed, rel=2e-3)
+    # per-element hand-sum: M = sum(q_k * L * x_bar_k)
+    hand = sum(q * (h / n) * (xs[i] + h / (2 * n)) for i, q in enumerate(loads))
+    assert m_base == pytest.approx(hand, rel=1e-9)

@@ -62,7 +62,7 @@ def _deflection_samples(model, result):
     return [(n.x, abs(w)) for n, (w, _) in zip(model.nodes, result.displacements)]
 
 
-def render_report(model, result, wind_speed, damping=0.01):
+def render_report(model, result, wind_speed, damping=0.01, height=10.0, z_0=0.05):
     lines = []
     lines.append("Element load analysis")
     lines.append("=====================")
@@ -103,6 +103,25 @@ def render_report(model, result, wind_speed, damping=0.01):
     d_ref = model.tube_specs[0][0]
     sc = scruton_number(m_eff, damping, d_ref)
     lines.append(f"  effective mass {m_eff:.3f} kg/m, Scruton Sc = {sc:.1f}")
+    lines.append("")
+    from elementload.report import along_wind_dynamic_factor
+    daf = along_wind_dynamic_factor(model, damping=damping, height=height, z_0=z_0)
+    lines.append(f"Along-wind dynamic factor (EN 1991-1-4 6.3.1/Annex B, reference height {height:.0f} m, "
+                 f"z0 = {z_0:.2f} m):")
+    lines.append(
+        f"  c_s*c_d = {daf['c_s_cd']:.3f} (c_s = {daf['c_s']:.3f}, c_d = {daf['c_d']:.3f}, "
+        f"B^2 = {daf['background']:.3f}, R^2 = {daf['resonance']:.3f}, "
+        f"k_p = {daf['peak_factor']:.2f}, I_v = {daf['turbulence_intensity']:.3f})"
+    )
+    lines.append(
+        f"  damping decrements: delta_s = {daf['delta_s']:.3f}, delta_a = {daf['delta_a']:.3f}, "
+        f"delta = {daf['delta']:.3f}"
+    )
+    if daf["frequency"] < 1.0:
+        lines.append(
+            f"  NOTE: fundamental frequency {daf['frequency']:.2f} Hz < 1 Hz, "
+            "along-wind dynamic amplification is significant"
+        )
     lines.append("")
     lines.append("Vortex shedding crosswind response (EN 1991-1-4 Annex E, approach 1):")
     v_resp = vortex_crosswind_response(model, damping=damping, n_modes=3)
@@ -150,12 +169,17 @@ def main(argv=None):
     parser.add_argument("--n-pins", type=int, default=2, metavar="N")
     parser.add_argument("--damping", type=float, default=0.01, metavar="ZETA",
                         help="structural damping ratio for dynamic response (default 0.01)")
+    parser.add_argument("--height", type=float, default=10.0, metavar="M",
+                        help="reference height above ground for turbulence (default 10)")
+    parser.add_argument("--z0", type=float, default=0.05, metavar="M",
+                        help="terrain roughness length z0 (default 0.05, terrain category II)")
     args = parser.parse_args(argv)
 
     model = build_model(args.tube, args.overlap, args.joint, args.support,
                         args.wind, args.material, args.pin_diameter, args.n_pins)
     result = analyze(model)
-    print(render_report(model, result, args.wind, damping=args.damping))
+    print(render_report(model, result, args.wind, damping=args.damping,
+                        height=args.height, z_0=args.z0))
 
 
 if __name__ == "__main__":

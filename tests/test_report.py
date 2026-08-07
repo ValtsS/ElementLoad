@@ -1,3 +1,5 @@
+import math
+
 import pytest
 
 from elementload.report import (
@@ -6,6 +8,7 @@ from elementload.report import (
     survival_wind_speed,
     natural_frequencies,
     vortex_crosswind_response,
+    along_wind_dynamic_factor,
 )
 from elementload.dynamics import critical_wind_speed, scruton_number, crosswind_amplitude
 from elementload.geometry import tube_inertia, tube_section_modulus, tube_area
@@ -190,3 +193,20 @@ def test_vortex_crosswind_response_fields():
     # at lock-in the design amplitude scales 1/Sc; more damping -> smaller response
     resp2 = vortex_crosswind_response(model, damping=0.02, n_modes=3)
     assert resp2[0]["y_max"] == pytest.approx(r["y_max"] / 2.0, rel=1e-9)
+
+
+def test_along_wind_dynamic_factor():
+    tubes = [(0.030, 0.002, 2.0)]
+    model = build_model(tubes, overlap=0.0, joint="rigid", supports=[("center", "fixed")], wind_speed=40.0)
+    r = along_wind_dynamic_factor(model, damping=0.01, height=10.0, z_0=0.05)
+    assert r["frequency"] == pytest.approx(natural_frequencies(model, n_modes=1)[0], rel=1e-9)
+    assert r["delta_s"] == pytest.approx(2 * math.pi * 0.01, rel=1e-12)
+    assert r["delta"] == pytest.approx(r["delta_s"] + r["delta_a"], rel=1e-12)
+    assert r["c_d"] == pytest.approx(r["c_s_cd"] / r["c_s"], rel=1e-12)
+    assert 0.0 < r["c_s"] < 1.0      # size factor reduces the load
+    assert r["c_d"] > 1.0            # dynamic factor amplifies it
+    assert 0.8 < r["c_s_cd"] < 1.5
+    # higher damping -> less resonance -> smaller dynamic factor
+    r2 = along_wind_dynamic_factor(model, damping=0.03, height=10.0, z_0=0.05)
+    assert r2["resonance"] < r["resonance"]
+    assert r2["c_s_cd"] < r["c_s_cd"]

@@ -36,7 +36,9 @@ def test_cli_subprocess_acceptance():
             "'--joint','rigid',"
             "'--support','center:fixed',"
             "'--wind','40',"
-            "'--damping','0.02'])")
+            "'--damping','0.02',"
+            "'--height','15',"
+            "'--z0','0.05'])")
     result = subprocess.run([sys.executable, "-c", code],
                             capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stderr
@@ -54,6 +56,10 @@ def test_cli_subprocess_acceptance():
     assert "y_max" in result.stdout
     assert "stress range" in result.stdout
     assert "lock-in window" in result.stdout
+    assert "Along-wind dynamic factor" in result.stdout
+    assert "reference height 15 m" in result.stdout
+    assert "c_s*c_d" in result.stdout
+    assert "delta_s" in result.stdout
 
 
 def test_cli_invalid_tube_arg():

@@ -220,6 +220,33 @@ def vortex_crosswind_response(model, damping=0.01, n_modes=3):
     return responses
 
 
+def along_wind_dynamic_factor(model, damping=0.01, height=10.0, z_0=0.05, wind_speed=None):
+    """EN 1991-1-4 6.3.1/Annex B: along-wind structural factor c_s c_d of the
+    fundamental mode, including the aerodynamic damping delta_a (F.18)."""
+    from elementload.dynamics import (
+        aerodynamic_log_decrement,
+        equivalent_mass,
+        log_decrement_structural,
+        modal_data,
+        structural_factor,
+    )
+    v_m = wind_speed if wind_speed is not None else model.wind_speed
+    masses = [seg.mass_per_length for seg in model.segments]
+    lengths = [model.nodes[e.j].x - model.nodes[e.i].x for e in model.elements]
+    freqs, modes = modal_data(model.nodes, model.elements, model.supports, masses, n_modes=1)
+    f1 = freqs[0]
+    b = model.tube_specs[0][0]
+    h = max(n.x for n in model.nodes) - min(n.x for n in model.nodes)
+    m_e = equivalent_mass(masses, lengths, modes[0][0::2])
+    delta_s = log_decrement_structural(damping)
+    c_f = drag_coefficient(reynolds_number(v_m, b))
+    delta_a = aerodynamic_log_decrement(c_f, RHO_AIR, b, v_m, f1, m_e)
+    delta = delta_s + delta_a
+    r = structural_factor(height, b, h, f1, v_m, z_0, delta)
+    r.update(frequency=f1, mass_per_length=m_e, delta_s=delta_s, delta_a=delta_a, delta=delta)
+    return r
+
+
 def _model_mass(model):
     # length-weighted average mass per length (representative of the element)
     total_length = sum(s.x1 - s.x0 for s in model.segments)

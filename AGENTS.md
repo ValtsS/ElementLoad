@@ -59,11 +59,20 @@ The test skips automatically under other interpreters.
 
 ## Roadmap
 
-1. geometry: tube section properties (I, Z, A, mass/len) — in progress
-2. wind: drag per unit length, Re-dependent Cd
-3. solver: beam FEM assemble/solve, V/M/delta (closed-form golden tests)
-4. supports: arbitrary support list, redundant-reaction tests
-5. assembly: stepped/telescoping element, overlap stiffness bounds
-6. failure: yield, local wall crippling, joint pin shear
-7. report: survival wind speed per mode + diagrams (CLI acceptance test)
+1. geometry: tube section properties (I, Z, A, mass/len) — done
+2. wind: drag per unit length, Re-dependent Cd — done
+3. solver: beam FEM assemble/solve, V/M/delta (closed-form golden tests) — done
+4. supports: arbitrary support list, redundant-reaction tests — done
+5. assembly: stepped/telescoping element, overlap stiffness bounds — done
+6. failure: yield, local wall crippling, joint pin shear — done
+7. report: survival wind speed per mode + diagrams (CLI acceptance test) — done
 8. later: dynamics (modal / vortex shedding), fatigue, multi-element model
+
+CLI: `python -m elementload --tube D,t,L [--tube ...] --overlap M --joint rigid|slipped
+--support POS:KIND [--support ...] [--wind MPS] [--material MAT] [--pin-diameter M] [--n-pins N]`
+or the installed `elementload` entry point. Report gives per-mode survival wind speeds
+(yield, local buckling, joint pin shear) in km/h plus ASCII deflection/moment diagrams.
+
+Open items flagged: local-buckling constant (0.3) and joint overlap stiffness models are
+not yet calibrated against measured telescoping data; geometry not cross-checked against
+a tube catalog. Survival wind speed bisection caps at 500 m/s.

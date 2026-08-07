@@ -10,6 +10,11 @@ from elementload.dynamics import (
     shedding_frequency,
     critical_wind_speed,
     scruton_number,
+    lateral_force_coefficient,
+    lateral_force_coefficient_base,
+    crosswind_amplitude,
+    correlation_length_factor_cantilever,
+    lock_in_window,
 )
 
 E = 69.0e9
@@ -101,3 +106,64 @@ def test_scruton_number():
     D = 0.030
     sc = scruton_number(m, zeta, D)
     assert sc == pytest.approx(4 * math.pi * m * zeta / (1.225 * D**2), rel=1e-9)
+
+
+def test_lateral_force_coefficient_base_plateaus():
+    # EN 1991-1-4 Fig. E.2: subcritical plateau, log-Re transition, transcritical plateau
+    assert lateral_force_coefficient_base(1.0e4) == pytest.approx(0.7)
+    assert lateral_force_coefficient_base(1.0e7) == pytest.approx(0.35)
+    # log-midpoint between 2e5 and 1e6 -> halfway between 0.7 and 0.35
+    mid_re = math.sqrt(2.0e5 * 1.0e6)
+    assert lateral_force_coefficient_base(mid_re) == pytest.approx(0.525)
+
+
+def test_lateral_force_coefficient_table_e3():
+    c0 = 0.7
+    # lock-in (critical wind ~ mean wind at the correlation centre)
+    assert lateral_force_coefficient(1.0, c0) == pytest.approx(0.75 * c0)
+    # well below resonance: linear ramp [3/2 - 4/3 * ratio] * c0
+    assert lateral_force_coefficient(0.5, c0) == pytest.approx((1.5 - 4 / 3 * 0.5) * c0)
+    # critical wind above 1.25 * mean wind: effect need not be investigated
+    assert lateral_force_coefficient(1.25, c0) == 0.0
+    assert lateral_force_coefficient(2.0, c0) == 0.0
+
+
+def test_crosswind_amplitude_e7_closed_form():
+    # y_max/b = (1/St^2)(1/Sc) c_lat K_w K, EN 1991-1-4 E.7
+    b = 0.030
+    st = 0.18
+    sc = 10.0
+    c_lat = 0.525
+    k_w = 0.5
+    k = 0.13
+    y = crosswind_amplitude(b, sc, c_lat, k_w, k, strouhal=st)
+    expected = b * (1 / st**2) * (1 / sc) * c_lat * k_w * k
+    assert y == pytest.approx(expected, rel=1e-9)
+    # dimensionless check: y/b = (1/St^2)(1/Sc) c_lat K_w K
+    assert y / b == pytest.approx((1 / st**2) * (1 / sc) * c_lat * k_w * k, rel=1e-9)
+
+
+def test_correlation_length_factor_cantilever_golden():
+    # K_w = int_{tip-L}^{tip} phi ds / int_0^h phi ds for phi=(s/h)^2 -> 1-(1-L/h)^3
+    h = 1.0
+    b = 0.030
+    L = 6.0 * b
+    kw = correlation_length_factor_cantilever(h, b)
+    assert kw == pytest.approx(1 - (1 - L / h) ** 3, rel=1e-12)
+    # matches direct numerical integration of the mode shape
+    n = 100000
+    s = [i * h / n for i in range(n + 1)]
+    tip = [i * h / n for i in range(n + 1) if i * h / n >= h - L]
+    num = (sum((x / h) ** 2 for x in tip) - (tip[0] / h) ** 2) * (h / n)
+    den = (sum((x / h) ** 2 for x in s) - 0.0) * (h / n)
+    assert kw == pytest.approx(num / den, rel=1e-3)
+    # capped at 0.6 per E.8
+    assert correlation_length_factor_cantilever(h, b, correlation_length=h) == pytest.approx(0.6)
+
+
+def test_lock_in_window():
+    # Table E.3 effective range: 0.83 < V_crit/V_m < 1.25 -> V_m in (V_crit/1.25, V_crit/0.83)
+    v = 5.0
+    lo, hi = lock_in_window(v)
+    assert lo == pytest.approx(v / 1.25)
+    assert hi == pytest.approx(v / 0.83)

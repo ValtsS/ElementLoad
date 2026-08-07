@@ -82,7 +82,7 @@ def test_shedding_frequency_scales_with_wind():
     f1 = shedding_frequency(10.0, 0.030)
     f2 = shedding_frequency(20.0, 0.030)
     assert f2 == pytest.approx(2 * f1, rel=1e-9)
-    assert f1 == pytest.approx(0.2 * 10.0 / 0.030, rel=1e-9)
+    assert f1 == pytest.approx(0.18 * 10.0 / 0.030, rel=1e-9)
 
 
 def test_critical_wind_speed_lockin():
@@ -90,7 +90,7 @@ def test_critical_wind_speed_lockin():
     f = 5.0
     D = 0.030
     v = critical_wind_speed(f, D)
-    assert v == pytest.approx(f * D / 0.2, rel=1e-9)
+    assert v == pytest.approx(f * D / 0.18, rel=1e-9)
     assert shedding_frequency(v, D) == pytest.approx(f, rel=1e-9)
 
 

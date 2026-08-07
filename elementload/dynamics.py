@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 from scipy.linalg import eigh
 
@@ -5,7 +7,7 @@ from elementload.geometry import tube_area
 from elementload.solver import _elem_mass_matrix, _element_dofs, assemble_stiffness, constraint_dofs
 
 RHO_AIR = 1.225
-STROUHAL = 0.2
+STROUHAL = 0.18  # EN 1991-1-4 E.1.3.2, smooth circular cylinder, all Re
 
 
 def mass_per_length(outer_d, wall, density):

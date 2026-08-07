@@ -45,7 +45,7 @@ def test_cli_subprocess_acceptance():
     assert "Element load analysis" in result.stdout
     assert "Survival wind speed per failure mode" in result.stdout
     assert "LIMITING MODE" in result.stdout
-    assert "km/h" in result.stdout
+    assert "m/s" in result.stdout
     assert "N.m" in result.stdout
     assert "MPa" in result.stdout
     assert "Dynamics" in result.stdout
@@ -115,8 +115,8 @@ def test_cli_stm_es_sag_model():
                                 capture_output=True, text=True, timeout=120)
     assert result_sag.returncode == 0, result_sag.stderr
     assert "Supports: center:fixed, 5.5:sag, -5.5:sag" in result_sag.stdout
-    v_pin = float([l for l in result_pin.stdout.splitlines() if l.strip().startswith("yield:")][0].split("km/h")[0].split()[-1])
-    v_sag = float([l for l in result_sag.stdout.splitlines() if l.strip().startswith("yield:")][0].split("km/h")[0].split()[-1])
+    v_pin = float([l for l in result_pin.stdout.splitlines() if l.strip().startswith("yield:")][0].split("m/s")[0].split()[-1])
+    v_sag = float([l for l in result_sag.stdout.splitlines() if l.strip().startswith("yield:")][0].split("m/s")[0].split()[-1])
     assert v_sag < v_pin
 
 

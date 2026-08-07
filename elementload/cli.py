@@ -5,7 +5,6 @@ from elementload.report import build_model, analyze, survival_wind_speed, build_
 from elementload.stm import read_stm, element_tube_extents
 from elementload.solver import internal_moment
 
-KMH_PER_MPS = 3.6
 _MODES = ("yield", "buckling", "pin_shear")
 
 
@@ -86,7 +85,7 @@ def render_report(model, result, wind_speed, damping=0.01, height=10.0, z_0=0.05
     lines.append(f"Material: {model.material}")
     lines.append(f"Pins: {model.n_pins} x {model.pin_diameter * 1000:.1f} mm at each joint")
     lines.append("")
-    lines.append(f"Analysis at wind speed {wind_speed:.1f} m/s ({wind_speed * KMH_PER_MPS:.0f} km/h):")
+    lines.append(f"Analysis at wind speed {wind_speed:.1f} m/s:")
     lines.append(f"  max moment:   {result.max_moment:9.1f} N.m at x = {result.max_moment_location:+.2f} m")
     lines.append(f"  max stress:   {result.max_stress / 1e6:9.1f} MPa at x = {result.max_stress_location:+.2f} m")
     lines.append(f"  max deflection: {result.max_deflection * 1000:8.1f} mm")
@@ -97,9 +96,9 @@ def render_report(model, result, wind_speed, damping=0.01, height=10.0, z_0=0.05
     for mode in _MODES:
         v = survival_wind_speed(model, mode=mode)
         survivals[mode] = v
-        lines.append(f"  {mode:>10}: {v * KMH_PER_MPS:7.1f} km/h ({v:5.1f} m/s)")
+        lines.append(f"  {mode:>10}: {v:7.1f} m/s")
     limiting = min(survivals, key=survivals.get)
-    lines.append(f"  LIMITING MODE: {limiting} at {survivals[limiting] * KMH_PER_MPS:.1f} km/h")
+    lines.append(f"  LIMITING MODE: {limiting} at {survivals[limiting]:.1f} m/s")
     lines.append("")
     lines.append(f"Dynamics (damping zeta = {damping:.3f}):")
     from elementload.report import natural_frequencies, vortex_crosswind_response
@@ -108,7 +107,7 @@ def render_report(model, result, wind_speed, damping=0.01, height=10.0, z_0=0.05
     freqs = natural_frequencies(model, n_modes=3)
     for i, f in enumerate(freqs, start=1):
         v_crit = critical_wind_speed(f, model.tube_specs[0][0])
-        lines.append(f"  mode {i}: f = {f:6.2f} Hz, lock-in at V_crit = {v_crit * KMH_PER_MPS:6.0f} km/h")
+        lines.append(f"  mode {i}: f = {f:6.2f} Hz, lock-in at V_crit = {v_crit:6.1f} m/s")
     m_eff = _model_mass(model)
     d_ref = model.tube_specs[0][0]
     sc = scruton_number(m_eff, damping, d_ref)
@@ -159,17 +158,17 @@ def render_report(model, result, wind_speed, damping=0.01, height=10.0, z_0=0.05
     lines.append("")
     lines.append("Vortex shedding crosswind response (EN 1991-1-4 Annex E, approach 1):")
     v_resp = vortex_crosswind_response(model, damping=damping, n_modes=3)
-    design_kmh = wind_speed * KMH_PER_MPS
+    design_mps = wind_speed
     for i, r in enumerate(v_resp, start=1):
-        lo_kmh = r["lock_in"][0] * KMH_PER_MPS
-        hi_kmh = r["lock_in"][1] * KMH_PER_MPS
+        lo_mps = r["lock_in"][0]
+        hi_mps = r["lock_in"][1]
         lines.append(
             f"  mode {i}: y_max = {r['y_max'] * 1000:7.2f} mm, "
             f"bending stress range = {r['stress_range'] / 1e6:7.1f} MPa, "
-            f"lock-in window {lo_kmh:6.0f}..{hi_kmh:6.0f} km/h"
+            f"lock-in window {lo_mps:6.1f}..{hi_mps:6.1f} m/s"
         )
-        if lo_kmh <= design_kmh <= hi_kmh:
-            lines.append(f"  NOTE: design wind {design_kmh:.0f} km/h is inside the mode {i} lock-in window")
+        if lo_mps <= design_mps <= hi_mps:
+            lines.append(f"  NOTE: design wind {design_mps:.1f} m/s is inside the mode {i} lock-in window")
     lines.append("")
     lines.append("Deflection |w| along element (mm):")
     samples = _deflection_samples(model, result)
@@ -189,8 +188,7 @@ def render_es_comparison(analyses, wind_speed):
     Shows max moment/stress/deflection and per-mode survival wind speeds for both."""
     names = {"pin": "rigid pin", "sag": "sag rope"}
     lines = []
-    lines.append(f"ES support model comparison (analysis at {wind_speed:.1f} m/s "
-                 f"= {wind_speed * KMH_PER_MPS:.0f} km/h):")
+    lines.append(f"ES support model comparison (analysis at {wind_speed:.1f} m/s):")
     labels = [names[l] for l, _, _ in analyses]
     lines.append(f"  {'':22}{labels[0]:>16}{labels[1]:>16}")
     for name, get in (("max moment (N.m)", lambda r: r.max_moment),
@@ -200,11 +198,11 @@ def render_es_comparison(analyses, wind_speed):
         for _, _, r in analyses:
             row += f"{get(r):16.1f}"
         lines.append(row)
-    lines.append("  survival wind speed (km/h):")
+    lines.append("  survival wind speed (m/s):")
     for mode in _MODES:
         row = f"    {mode:<16}"
         for _, model, _ in analyses:
-            v = survival_wind_speed(model, mode=mode) * KMH_PER_MPS
+            v = survival_wind_speed(model, mode=mode)
             row += f"{v:16.1f}"
         lines.append(row)
     row = f"    {'limiting':<16}"
@@ -295,7 +293,7 @@ def _main_stm(args, parser):
     stm = read_stm(args.stm)
     print(f"YagiMechanical file: {args.stm}")
     print(f"Antenna: {stm.antenna}, height H = {stm.height:.2f} m, design wind "
-          f"WS = {stm.wind_speed * KMH_PER_MPS:.1f} km/h ({stm.wind_speed:.1f} m/s)")
+          f"WS = {stm.wind_speed:.1f} m/s")
     if stm.boom is not None:
         b = stm.boom.segments[0]
         print(f"Boom ({stm.boom.key}): {b.outer_d * 1000:.1f} x {b.wall * 1000:.2f} mm, "

@@ -38,7 +38,7 @@ The test skips automatically under other interpreters.
 - Package code lives in `elementload/`, tests in `tests/`.
 - Tests use pytest, plain asserts, no external test deps.
 - No comments in code unless needed to explain non-obvious physics.
-- Units: SI (m, N, Pa, m/s). Wind speed in m/s internally, km/h only in output.
+- Units: SI (m, N, Pa, m/s). Wind speed in m/s.
 - Solver is decoupled behind a clean interface so the backend (scipy vs. OpenSees)
   can be swapped without touching geometry/wind/failure code.
 
@@ -75,7 +75,7 @@ or, for a YagiMechanical antenna design file:
 `python -m elementload --stm FILE [--element NAME] [--material MAT] [--joint ...] [--support ...]
 [--wind MPS] [--damping ZETA] [--height M] [--z0 M]`
 or the installed `elementload` entry point. Report gives per-mode survival wind speeds
-(yield, local buckling, joint pin shear) in km/h plus ASCII deflection/moment diagrams,
+(yield, local buckling, joint pin shear) in m/s plus ASCII deflection/moment diagrams,
 and EN 1991-1-4 Annex E crosswind response and 6.3.1/Annex B along-wind dynamic factor
 sections.
 
@@ -113,7 +113,7 @@ and self-weight solves use different support sets and are combined orthogonally
 plane. `both` (default) prints a side-by-side comparison block (max moment/stress/
 deflection and per-mode survival wind speeds for rigid pin vs sag rope) and then the
 full detail report for the rigid-pin model. Survival wind speed ordering: center-only
-< sag < rigid pin (a1.stm 40m RE yield: 76.0 / 91.7 / 173.5 km/h).
+< sag < rigid pin (a1.stm 40m RE yield: 21.1 / 25.5 / 48.2 m/s).
 a1.stm's boom is two square tubes (80x80x4 + 70x70x3) and is skipped; header ice IT = 0.
 YM6 custom material yield values (T6 150 MPa, T66 170 MPa, matching the file YS) are NOT
 used for known materials: the CLI keeps the material-table allowables (T6 160 MPa, T66
@@ -122,10 +122,10 @@ Open items flagged: local-buckling constant (0.3) and joint overlap stiffness mo
 not yet calibrated against measured telescoping data; geometry not cross-checked against
 a tube catalog. Survival wind speed bisection caps at 500 m/s.
 
-Reference results (`data/mechanical2.stm`, design wind 145.9 km/h, center-fixed, rigid
-joints): yield is ALWAYS the limiting mode (buckling ~700+ km/h, pin shear ~1800 km/h).
-With al6060-t6 (160 MPa) 4/7 elements FAIL the design wind (15m RE 136.8, 15m DE 143.7,
-10m RE 136.4, 10m D1 142.7 km/h); with al6060-t66 (190 MPa) all pass (149.5..172.9 km/h).
+Reference results (`data/mechanical2.stm`, design wind 40.5 m/s, center-fixed, rigid
+joints): yield is ALWAYS the limiting mode (buckling ~200+ m/s, pin shear ~500 m/s).
+With al6060-t6 (160 MPa) 4/7 elements FAIL the design wind (15m RE 38.0, 15m DE 39.9,
+10m RE 37.9, 10m D1 39.6 m/s); with al6060-t66 (190 MPa) all pass (41.5..48.0 m/s).
 Fatigue is a non-issue for this antenna: gust buffeting stress range ~4-7 MPa and VIV
 ~0.1-0.2 MPa vs 67-70 MPa endurance -> unlimited life. Useful as a sanity-check fixture
 when changing the solver or material data.

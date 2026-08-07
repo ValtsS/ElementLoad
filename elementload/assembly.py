@@ -20,6 +20,7 @@ class Segment:
     wall: float
     inertia: float
     e_modulus: float = 69.0e9
+    is_overlap: bool = False
 
 
 def _overlap_inertia(prev, cur, joint):
@@ -59,6 +60,7 @@ def _build_half(tubes, overlap, joint):
                 max(prev.wall, cur.wall),
                 _overlap_inertia(prev, cur, joint),
                 prev.e_modulus,
+                True,
             )
         )
         x += overlap
@@ -71,6 +73,7 @@ def _build_half(tubes, overlap, joint):
                 cur.wall,
                 tube_inertia(cur.outer_d, cur.wall),
                 cur.e_modulus,
+                False,
             )
         )
         x += exposed
@@ -80,7 +83,8 @@ def _build_half(tubes, overlap, joint):
 def build_telescoping(tubes, overlap, joint):
     right = _build_half(tubes, overlap, joint)
     left = [
-        Segment(-s.x1, -s.x0, s.outer_d, s.wall, s.inertia, s.e_modulus) for s in reversed(right)
+        Segment(-s.x1, -s.x0, s.outer_d, s.wall, s.inertia, s.e_modulus, s.is_overlap)
+        for s in reversed(right)
     ]
     segments = left + right
     nodes = sorted({0.0} | {s.x0 for s in segments} | {s.x1 for s in segments})

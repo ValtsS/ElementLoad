@@ -5,7 +5,6 @@ from elementload.geometry import tube_inertia, tube_section_modulus
 
 E = 69.0e9
 
-
 def test_build_model_single_tube_clamped_center():
     # 30mm tube, 2m long, clamped at center -> 2 cantilever halves of 1m
     tubes = [(0.030, 0.002, 2.0)]
@@ -56,3 +55,61 @@ def test_survival_wind_speed_zero_margin_matches_analyze():
     model2 = build_model(tubes, overlap=0.0, joint="rigid", supports=[("center", "fixed")], wind_speed=v)
     result2 = analyze(model2)
     assert result2.max_stress / 276.0e6 == pytest.approx(1.0, rel=1e-3)
+
+
+def test_analyze_utilization_modes_present():
+    D, t, length = 0.030, 0.002, 2.0
+    tubes = [(D, t, length)]
+    model = build_model(tubes, overlap=0.0, joint="rigid", supports=[("center", "fixed")], wind_speed=150.0)
+    result = analyze(model)
+    assert set(result.utilization) == {"yield", "buckling", "pin_shear"}
+
+
+def test_analyze_yield_utilization_equals_stress_ratio():
+    D, t, length = 0.030, 0.002, 2.0
+    tubes = [(D, t, length)]
+    model = build_model(tubes, overlap=0.0, joint="rigid", supports=[("center", "fixed")], wind_speed=150.0)
+    result = analyze(model)
+    factor, loc = result.utilization["yield"]
+    assert factor == pytest.approx(result.max_stress / 276.0e6, rel=1e-9)
+    assert loc == pytest.approx(0.0, abs=1e-6)
+
+
+def test_survival_wind_speed_buckling_consistent():
+    # thin wall tube: at the buckling survival speed the buckling factor is ~1.0
+    D, t, length = 0.030, 0.001, 2.0
+    tubes = [(D, t, length)]
+    model = build_model(tubes, overlap=0.0, joint="rigid", supports=[("center", "fixed")], wind_speed=150.0)
+    v = survival_wind_speed(model, mode="buckling")
+    assert 10.0 < v < 500.0
+    model2 = build_model(tubes, overlap=0.0, joint="rigid", supports=[("center", "fixed")], wind_speed=v)
+    factor, _ = analyze(model2).utilization["buckling"]
+    assert factor == pytest.approx(1.0, rel=1e-3)
+
+
+def test_survival_wind_speed_pin_shear_consistent():
+    # telescoping model with pins: at the pin-shear survival speed the factor is ~1.0
+    tubes = [(0.030, 0.002, 0.6), (0.025, 0.002, 0.6), (0.020, 0.002, 0.6), (0.016, 0.0015, 0.6)]
+    model = build_model(tubes, overlap=0.05, joint="rigid",
+                        supports=[("center", "fixed")], wind_speed=150.0,
+                        pin_diameter=0.001, n_pins=1)
+    v = survival_wind_speed(model, mode="pin_shear")
+    assert 1.0 < v < 500.0
+    model2 = build_model(tubes, overlap=0.05, joint="rigid",
+                         supports=[("center", "fixed")], wind_speed=v,
+                         pin_diameter=0.001, n_pins=1)
+    factor, _ = analyze(model2).utilization["pin_shear"]
+    assert factor == pytest.approx(1.0, rel=1e-3)
+
+
+def test_limiting_mode_is_min_survival():
+    # the limiting survival speed across modes is the minimum of the per-mode values
+    D, t, length = 0.030, 0.002, 2.0
+    tubes = [(D, t, length)]
+    model = build_model(tubes, overlap=0.0, joint="rigid", supports=[("center", "fixed")], wind_speed=150.0)
+    v_yield = survival_wind_speed(model, mode="yield")
+    v_buckle = survival_wind_speed(model, mode="buckling")
+    v_pin = survival_wind_speed(model, mode="pin_shear")
+    assert min(v_yield, v_buckle, v_pin) == v_yield  # yield is the critical mode
+    assert v_buckle == pytest.approx(500.0)  # buckling not critical for 2mm wall
+    assert v_pin == pytest.approx(500.0)  # no pins (single tube) -> not critical

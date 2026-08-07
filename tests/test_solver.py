@@ -8,6 +8,7 @@ from elementload.solver import (
     DistributedLoad,
     solve,
     element_end_forces,
+    internal_moment,
 )
 
 E = 69.0e9
@@ -105,3 +106,31 @@ def test_simply_supported_center_point_load_moment():
     u = solve(model, elements, supports, loads)
     _, m_center, _, _ = element_end_forces(elements, 1, model, u, loads)
     assert m_center == pytest.approx(P * L / 4, rel=1e-9)
+
+
+def test_internal_moment_cantilever_uniform():
+    # M(s) = m_i - v_i*s - q*s^2/2 = -q*(L-s)^2/2 for a uniform cantilever
+    L = 2.0
+    q = -20.0
+    model = [Node(0.0), Node(L)]
+    elements = [Element(0, 1, E, I)]
+    supports = [Support(0, "fixed")]
+    loads = [DistributedLoad(0, q)]
+    u = solve(model, elements, supports, loads)
+    for s in (0.0, L / 4, L / 2, 3 * L / 4, L):
+        expected = -q * (L - s) ** 2 / 2
+        assert internal_moment(elements, 0, model, u, loads, s) == pytest.approx(expected, rel=1e-9)
+
+
+def test_internal_moment_cantilever_tip_load():
+    # M(s) = -P_applied*(L - s)
+    L = 1.0
+    P = -100.0
+    model = [Node(0.0), Node(L)]
+    elements = [Element(0, 1, E, I)]
+    supports = [Support(0, "fixed")]
+    loads = [PointLoad(1, force=P)]
+    u = solve(model, elements, supports, loads)
+    for s in (0.0, L / 3, 2 * L / 3, L):
+        expected = -P * (L - s)
+        assert internal_moment(elements, 0, model, u, loads, s) == pytest.approx(expected, rel=1e-9)

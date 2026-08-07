@@ -2,7 +2,7 @@ import math
 from dataclasses import dataclass
 
 from elementload.assembly import Tube, build_telescoping
-from elementload.failure import allowables
+from elementload.failure import allowables, local_buckling_stress
 from elementload.geometry import tube_area, tube_section_modulus
 from elementload.solver import (
     Node,
@@ -32,9 +32,12 @@ class Model:
     supports: list
     loads: list
     segments: list
+    pin_diameter: float = 0.004
+    n_pins: int = 2
 
 
-def build_model(tube_specs, overlap, joint, supports, wind_speed, material="al6061-t6"):
+def build_model(tube_specs, overlap, joint, supports, wind_speed, material="al6061-t6",
+                pin_diameter=0.004, n_pins=2):
     tubes = [Tube(*s) for s in tube_specs]
     nodes_x, segments = build_telescoping(tubes, overlap, joint)
     nodes = [Node(x) for x in nodes_x]
@@ -48,7 +51,7 @@ def build_model(tube_specs, overlap, joint, supports, wind_speed, material="al60
         idx = min(range(len(nodes_x)), key=lambda k: abs(nodes_x[k] - x))
         supports_obj.append(Support(idx, kind))
     return Model(tube_specs, overlap, joint, supports, material, wind_speed,
-                 nodes, elements, supports_obj, loads, segments)
+                 nodes, elements, supports_obj, loads, segments, pin_diameter, n_pins)
 
 
 def wind_load(wind_speed, outer_d):
@@ -69,40 +72,71 @@ def wind_and_weight_load(seg, wind_speed, material):
 class Analysis:
     displacements: list
     max_moment: float
+    max_moment_location: float
     max_stress: float
     max_stress_location: float
     max_deflection: float
+    utilization: dict
 
 
 def analyze(model):
     u = solve(model.nodes, model.elements, model.supports, model.loads)
     max_moment = 0.0
+    max_moment_location = 0.0
     max_stress = 0.0
     max_stress_location = 0.0
+    yield_stress = allowables(model.material)["yield"]
+    shear_strength = allowables(model.material)["shear"]
+    pin_area = model.n_pins * math.pi * model.pin_diameter**2 / 4
+
+    max_buckling_factor = 0.0
+    buckling_location = 0.0
+    max_pin_factor = 0.0
+    pin_location = 0.0
+
     for i, seg in enumerate(model.segments):
-        _, m_i, _, m_j = element_end_forces(model.elements, i, model.nodes, u, model.loads)
+        v_i, m_i, v_j, m_j = element_end_forces(model.elements, i, model.nodes, u, model.loads)
         z = tube_section_modulus(seg.outer_d, seg.wall)
+        stress = max(abs(m_i), abs(m_j)) / z
         for m, x in ((m_i, seg.x0), (m_j, seg.x1)):
-            stress = abs(m) / z
-            if stress > max_stress:
-                max_stress = stress
-                max_stress_location = x
             if abs(m) > max_moment:
                 max_moment = abs(m)
+                max_moment_location = x
+            if abs(m) / z > max_stress:
+                max_stress = abs(m) / z
+                max_stress_location = x
+        sigma_cr = local_buckling_stress(seg.outer_d, seg.wall, seg.e_modulus)
+        if stress / sigma_cr > max_buckling_factor:
+            max_buckling_factor = stress / sigma_cr
+            buckling_location = (seg.x0 if abs(m_i) >= abs(m_j) else seg.x1)
+        if seg.is_overlap:
+            shear = max(abs(v_i), abs(v_j))
+            pin_factor = (shear / pin_area) / shear_strength
+            if pin_factor > max_pin_factor:
+                max_pin_factor = pin_factor
+                pin_location = (seg.x0 if abs(v_i) >= abs(v_j) else seg.x1)
+
     max_deflection = max(abs(w) for w, _ in u)
-    return Analysis(u, max_moment, max_stress, max_stress_location, max_deflection)
+    utilization = {
+        "yield": (max_stress / yield_stress, max_stress_location),
+        "buckling": (max_buckling_factor, buckling_location),
+        "pin_shear": (max_pin_factor, pin_location),
+    }
+    return Analysis(u, max_moment, max_moment_location, max_stress,
+                    max_stress_location, max_deflection, utilization)
 
 
 def survival_wind_speed(model, mode="yield"):
-    if mode != "yield":
-        raise NotImplementedError(f"mode {mode} not implemented")
-    yield_stress = allowables(model.material)["yield"]
+    if mode not in ("yield", "buckling", "pin_shear"):
+        raise ValueError(f"unknown failure mode: {mode}")
     low, high = 1.0, 500.0
     for _ in range(60):
         mid = (low + high) / 2
         m = build_model(model.tube_specs, model.overlap, model.joint,
-                        model.support_specs, mid, model.material)
-        if analyze(m).max_stress >= yield_stress:
+                        model.support_specs, mid, model.material,
+                        model.pin_diameter, model.n_pins)
+        factor, _ = analyze(m).utilization[mode]
+        if factor >= 1.0:
             high = mid
         else:
             low = mid

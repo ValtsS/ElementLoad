@@ -105,3 +105,11 @@ def element_end_forces(elements, index, nodes, u, loads):
         if isinstance(load, DistributedLoad) and load.element == index:
             f = f - _elem_consistent_load(load.q, L)
     return tuple(f)
+
+
+def internal_moment(elements, index, nodes, u, loads, s):
+    e = elements[index]
+    v_i, m_i, _, _ = element_end_forces(elements, index, nodes, u, loads)
+    q = sum(load.q for load in loads
+            if isinstance(load, DistributedLoad) and load.element == index)
+    return m_i - v_i * s - q * s**2 / 2

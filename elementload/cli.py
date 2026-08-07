@@ -80,6 +80,7 @@ def render_report(model, result, wind_speed):
     lines.append(f"  max moment:   {result.max_moment:9.1f} N.m at x = {result.max_moment_location:+.2f} m")
     lines.append(f"  max stress:   {result.max_stress / 1e6:9.1f} MPa at x = {result.max_stress_location:+.2f} m")
     lines.append(f"  max deflection: {result.max_deflection * 1000:8.1f} mm")
+    lines.append(f"  self-weight sag: {result.max_sag * 1000:8.1f} mm")
     lines.append("")
     lines.append("Survival wind speed per failure mode:")
     survivals = {}

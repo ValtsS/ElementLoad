@@ -1,9 +1,11 @@
 import pytest
 
 from elementload.report import build_model, analyze, survival_wind_speed
-from elementload.geometry import tube_inertia, tube_section_modulus
+from elementload.geometry import tube_inertia, tube_section_modulus, tube_area
 
 E = 69.0e9
+G = 9.81
+AL_DENSITY = 2700.0
 
 def test_build_model_single_tube_clamped_center():
     # 30mm tube, 2m long, clamped at center -> 2 cantilever halves of 1m
@@ -113,3 +115,23 @@ def test_limiting_mode_is_min_survival():
     assert min(v_yield, v_buckle, v_pin) == v_yield  # yield is the critical mode
     assert v_buckle == pytest.approx(500.0)  # buckling not critical for 2mm wall
     assert v_pin == pytest.approx(500.0)  # no pins (single tube) -> not critical
+
+
+def test_self_weight_sag_matches_cantilever_formula():
+    # single tube clamped at center: each half is a cantilever, tip sag = q*l^4/(8*E*I)
+    D, t, length = 0.030, 0.002, 2.0
+    tubes = [(D, t, length)]
+    model = build_model(tubes, overlap=0.0, joint="rigid", supports=[("center", "fixed")], wind_speed=40.0)
+    result = analyze(model)
+    q = tube_area(D, t) * AL_DENSITY * G
+    l = length / 2  # half span
+    expected = q * l**4 / (8 * E * tube_inertia(D, t))
+    assert result.max_sag == pytest.approx(expected, rel=1e-6)
+
+
+def test_self_weight_sag_independent_of_wind():
+    # sag at zero wind equals sag at 40 m/s (self-weight only)
+    tubes = [(0.030, 0.002, 2.0)]
+    m0 = build_model(tubes, overlap=0.0, joint="rigid", supports=[("center", "fixed")], wind_speed=0.0)
+    m40 = build_model(tubes, overlap=0.0, joint="rigid", supports=[("center", "fixed")], wind_speed=40.0)
+    assert analyze(m0).max_sag == pytest.approx(analyze(m40).max_sag, rel=1e-9)

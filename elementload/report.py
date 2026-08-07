@@ -76,7 +76,13 @@ class Analysis:
     max_stress: float
     max_stress_location: float
     max_deflection: float
+    max_sag: float
     utilization: dict
+
+
+def self_weight_loads(model):
+    return [DistributedLoad(i, self_weight_load(seg))
+            for i, seg in enumerate(model.segments)]
 
 
 def analyze(model):
@@ -117,13 +123,15 @@ def analyze(model):
                 pin_location = (seg.x0 if abs(v_i) >= abs(v_j) else seg.x1)
 
     max_deflection = max(abs(w) for w, _ in u)
+    u_sag = solve(model.nodes, model.elements, model.supports, self_weight_loads(model))
+    max_sag = max(abs(w) for w, _ in u_sag)
     utilization = {
         "yield": (max_stress / yield_stress, max_stress_location),
         "buckling": (max_buckling_factor, buckling_location),
         "pin_shear": (max_pin_factor, pin_location),
     }
     return Analysis(u, max_moment, max_moment_location, max_stress,
-                    max_stress_location, max_deflection, utilization)
+                    max_stress_location, max_deflection, max_sag, utilization)
 
 
 def survival_wind_speed(model, mode="yield"):

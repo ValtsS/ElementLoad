@@ -23,9 +23,15 @@ All commands use the project virtual environment:
 ```
 .venv\Scripts\python.exe -m pytest          # run tests
 .venv\Scripts\python.exe -m pytest tests\test_geometry.py -k tube   # subset
+.venv-osees\Scripts\python.exe -m pytest tests\test_opensees_crosscheck.py  # OpenSees cross-check
 ```
 
 On non-Windows shells the venv python is `.venv/bin/python`.
+
+The OpenSees cross-check needs its own venv because the `openseespywin` wheel ships
+a `.pyd` built against `python312.dll`; run it under the Python 3.12 venv
+(`.venv-osees`, created with `C:\Python312\python.exe -m venv .venv-osees`).
+The test skips automatically under other interpreters.
 
 ## Conventions
 
@@ -39,8 +45,15 @@ On non-Windows shells the venv python is `.venv/bin/python`.
 ## Physical models (authoritative references)
 
 - Beam FEM: 2-node Euler-Bernoulli elements, stepped sections with own EI.
+  Cross-checked against an independent FE engine (OpenSees 3.8 elasticBeamColumn)
+  for a stepped telescoping cantilever under wind+weight load; node deflections
+  and max end moment agree to <1e-6 relative (both rigid and slipped joint models).
 - Wind: drag per unit length q = 0.5*rho*V^2*Cd*D, Re-dependent Cd per
   EN 1991-1-4 circular cylinder chart; gust/height/terrain factors.
+  Cd chart in `elementload/wind.py` follows EN 1991-1-4 Fig. 7.28 for a smooth
+  circular cylinder: subcritical plateau 1.2 (Wieselsberger, per Schewe 1983),
+  drag crisis down to ~0.4, transcritical recovery. Anchored to the Dlubal
+  Eurocode verification example VE0308 (Cf,0 = 0.55 at Re = 2e6).
 - Telescoping joints: analyze rigid-overlap and slipped/pinned-overlap bounds.
 - Supports: fixed / pin / roller at arbitrary nodes (multiple allowed).
 

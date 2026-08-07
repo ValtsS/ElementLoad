@@ -72,7 +72,6 @@ CLI: `python -m elementload --tube D,t,L [--tube ...] --overlap M --joint rigid|
 --support POS:KIND [--support ...] [--wind MPS] [--material MAT] [--pin-diameter M] [--n-pins N]`
 or the installed `elementload` entry point. Report gives per-mode survival wind speeds
 (yield, local buckling, joint pin shear) in km/h plus ASCII deflection/moment diagrams.
-
 Open items flagged: local-buckling constant (0.3) and joint overlap stiffness models are
 not yet calibrated against measured telescoping data; geometry not cross-checked against
 a tube catalog. Survival wind speed bisection caps at 500 m/s.
@@ -97,14 +96,23 @@ Physical targets (all testable against closed-form or an independent solver):
   — done (mass in `dynamics.py`, per-mode f + lock-in V_crit + Scruton in CLI report)
 
 ### 8.2 Vortex shedding / cross-wind response
-- Strouhal number St ~ 0.2 (smooth circular cylinder, subcritical range).
+- Strouhal number St = 0.18 (EN 1991-1-4, smooth circular cylinder).
 - Shedding frequency f_s = St * V / D; lock-in when f_s matches a natural frequency.
 - Critical wind speed per mode: V_crit,i = f_i * D / St.
 - Scruton number Sc = 4*pi*m*zeta/(rho_air*D^2) — small Sc => strong lock-in response.
-- Report: shedding frequency vs wind speed, the lock-in speed window(s) in km/h, and
-  whether the design wind range crosses them; estimate crosswind amplitude/stress range
-  (reference: EN 1991-1-4 section on vortex-induced vibration / ESDU data).
-  — partial (f_s, V_crit, Scruton implemented; lock-in window + amplitude estimate pending)
+- Crosswind response per EN 1991-1-4 Annex E, approach 1:
+  - E.7 y_F,max/b = (1/St^2)(1/Sc) c_lat K_w K; c_lat from Table E.3 at the lock-in
+    ratio V_crit/V_m = 1 (c_lat = 0.75 c_lat,0), c_lat,0 from Fig. E.2 digitized
+    (0.7 subcritical, 0.35 transcritical, log-Re transition 2e5..1e6).
+  - K_w from E.8 for a cantilever (correlation length L_j = 6 b at the tip, capped
+    at 0.6); K = 0.13 from Table E.5 (cantilever fundamental).
+  - E.6-equivalent static load F(s) = m_e(s) (2 pi f_i)^2 phi_i(s) y_F,max gives the
+    cyclic bending stress; the reported range is 2x the peak bending stress.
+  - Validated: uniform-cantilever base moment M = m w^2 y_max h^2/4; equivalent mass
+    m_e (F.14) against closed forms; modal shapes normalized to unit max displacement.
+  - Report: per-mode y_max and bending stress range, lock-in window (0.83..1.25 of
+    V_crit, Table E.3), and a NOTE when the design wind falls inside a lock-in window.
+  — done (f_s, V_crit, Scruton, crosswind amplitude, stress range, lock-in window, --damping)
 
 ### 8.3 Along-wind dynamic amplification
 - Dynamic amplification factor for buffeting response (gust turbulence) —

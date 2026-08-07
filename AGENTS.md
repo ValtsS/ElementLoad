@@ -70,10 +70,11 @@ The test skips automatically under other interpreters.
 
 CLI: `python -m elementload --tube D,t,L [--tube ...] --overlap M --joint rigid|slipped
 --support POS:KIND [--support ...] [--wind MPS] [--material MAT] [--pin-diameter M] [--n-pins N]
-[--damping ZETA]`
+[--damping ZETA] [--height M] [--z0 M]`
 or the installed `elementload` entry point. Report gives per-mode survival wind speeds
 (yield, local buckling, joint pin shear) in km/h plus ASCII deflection/moment diagrams,
-and an EN 1991-1-4 Annex E crosswind response section.
+and EN 1991-1-4 Annex E crosswind response and 6.3.1/Annex B along-wind dynamic factor
+sections.
 Open items flagged: local-buckling constant (0.3) and joint overlap stiffness models are
 not yet calibrated against measured telescoping data; geometry not cross-checked against
 a tube catalog. Survival wind speed bisection caps at 500 m/s.
@@ -118,9 +119,22 @@ Physical targets (all testable against closed-form or an independent solver):
 
 ### 8.3 Along-wind dynamic amplification
 - Dynamic amplification factor for buffeting response (gust turbulence) —
-  EN 1991-1-4 structural factor c_s c_d or an equivalent DAF based on the fundamental
-  frequency, mass, and damping. Applies as a multiplier on the static wind load or as
-  a report note when fundamental f is below ~1 Hz.
+  EN 1991-1-4 structural factor c_s c_d (6.3.1 eq 6.1, Annex B procedure 1):
+  - c_s c_d = (1 + 2 k_p I_v sqrt(B^2 + R^2))/(1 + 7 I_v); c_s = (1 + 7 I_v B^2)/(1 + 7 I_v).
+  - Components per Annex B: I_v = k_I/(c_0 ln(z/z0)) (4.7); L(z) = 300 (z/200)^0.67 (B.1);
+    B^2 = 1/(1 + 0.9 ((b+h)/L)^0.63) (B.2); R^2 = (pi^2/2 delta) S_L R_h R_b (B.2);
+    S_L = 6.8 f_L/(1 + 10.2 f_L)^(5/3); R(eta) = 1/eta - (1-e^-2eta)/(2 eta^2),
+    eta = 4.6 (b or h)/L f_L; k_p = max(sqrt(2 ln(nu T)) + 0.6/sqrt(2 ln(nu T)), 3), T = 600 s.
+  - Damping delta = delta_s + delta_a; delta_s = 2 pi zeta (F.5),
+    delta_a = c_f rho b v_m/(2 n_1 m_e) (F.18).
+  - Validated: peak factor, admittance, background and spectrum against closed forms;
+    c_s c_d assembly against eq 6.1/6.2; no-turbulence and high-frequency limits.
+  - CLI `--height` (reference height, default 10 m) and `--z0` (terrain roughness,
+    default 0.05 m, terrain category II). Report shows c_s, c_d, B^2, R^2, k_p, I_v and
+    the decrements; a NOTE is printed when the fundamental frequency is below 1 Hz.
+  — done (c_s c_d + components in `dynamics.py`, `along_wind_dynamic_factor` in report.py,
+    CLI output and --height/--z0). Not yet applied as a multiplier on the static wind load
+    (survival wind speeds still use the undamped static wind).
 
 ### 8.4 Fatigue (follow-on, depends on 8.2/8.3)
 - S-N curve data for 6061-T6 / 6063-T6, cyclic stress range from VIV and gust

@@ -68,3 +68,29 @@ def test_cli_invalid_tube_arg():
     with pytest.raises(SystemExit):
         main(["--tube", "0.030,0.002", "--overlap", "0.05", "--joint", "rigid",
               "--support", "center:fixed"])
+
+
+def test_cli_stm_acceptance():
+    code = ("from elementload.cli import main; "
+            "main(['--stm', 'data/mechanical2.stm', '--element', '15m RE'])")
+    result = subprocess.run([sys.executable, "-c", code],
+                            capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    assert "YagiMechanical file" in result.stdout
+    assert "15m RE" in result.stdout
+    assert "20.28 MHz" in result.stdout
+    assert "Boom (B0)" in result.stdout
+    assert "skipped" in result.stdout
+    assert "Overlap per joint: 100, 100, 130 mm" in result.stdout
+    assert "Survival wind speed per failure mode" in result.stdout
+    assert "Material: al6060-t6" in result.stdout
+    assert "no S-N data for this material" in result.stdout
+
+
+def test_cli_stm_unknown_element_rejected():
+    code = ("from elementload.cli import main; "
+            "main(['--stm', 'data/mechanical2.stm', '--element', 'nope'])")
+    result = subprocess.run([sys.executable, "-c", code],
+                            capture_output=True, text=True, timeout=120)
+    assert result.returncode != 0
+    assert "no element named" in result.stderr

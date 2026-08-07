@@ -1,7 +1,7 @@
 import math
 from dataclasses import dataclass
 
-from elementload.assembly import Tube, build_telescoping
+from elementload.assembly import Tube, TubeExtent, build_from_extents, build_telescoping
 from elementload.failure import allowables, local_buckling_stress
 from elementload.geometry import tube_area, tube_section_modulus
 from elementload.solver import (
@@ -34,6 +34,8 @@ class Model:
     segments: list
     pin_diameter: float = 0.004
     n_pins: int = 2
+    geometry_extents: list = None
+    yield_stress: float = None
 
 
 def build_model(tube_specs, overlap, joint, supports, wind_speed, material="al6061-t6",
@@ -45,13 +47,39 @@ def build_model(tube_specs, overlap, joint, supports, wind_speed, material="al60
     elements = [Element(index[s.x0], index[s.x1], s.e_modulus, s.inertia) for s in segments]
     loads = [DistributedLoad(i, wind_and_weight_load(seg, wind_speed, material))
              for i, seg in enumerate(segments)]
+    supports_obj = _support_objects(supports, nodes_x)
+    return Model(tube_specs, overlap, joint, supports, material, wind_speed,
+                 nodes, elements, supports_obj, loads, segments, pin_diameter, n_pins)
+
+
+def _support_objects(supports, nodes_x):
     supports_obj = []
     for pos, kind in supports:
         x = 0.0 if pos == "center" else pos
         idx = min(range(len(nodes_x)), key=lambda k: abs(nodes_x[k] - x))
         supports_obj.append(Support(idx, kind))
+    return supports_obj
+
+
+def build_model_from_geometry(tube_extents, joint, supports, wind_speed,
+                              material="al6061-t6", pin_diameter=0.004, n_pins=2,
+                              yield_stress=None):
+    """Model from exact per-side tube extents (innermost tube first), e.g. read from a
+    YagiMechanical .stm file. Yield stress is taken from the caller (file YS) rather
+    than the material name table."""
+    tubes = [t if isinstance(t, TubeExtent) else TubeExtent(*t) for t in tube_extents]
+    nodes_x, segments = build_from_extents(tubes, joint)
+    nodes = [Node(x) for x in nodes_x]
+    index = {x: k for k, x in enumerate(nodes_x)}
+    elements = [Element(index[s.x0], index[s.x1], s.e_modulus, s.inertia) for s in segments]
+    loads = [DistributedLoad(i, wind_and_weight_load(seg, wind_speed, material))
+             for i, seg in enumerate(segments)]
+    supports_obj = _support_objects(supports, nodes_x)
+    tube_specs = [(t.outer_d, t.wall, 2.0 * (t.inner_end - t.inner_start)) for t in tubes]
+    overlap = [tubes[i].inner_end - tubes[i + 1].inner_start for i in range(len(tubes) - 1)]
     return Model(tube_specs, overlap, joint, supports, material, wind_speed,
-                 nodes, elements, supports_obj, loads, segments, pin_diameter, n_pins)
+                 nodes, elements, supports_obj, loads, segments, pin_diameter, n_pins,
+                 list(tubes), yield_stress)
 
 
 def wind_load(wind_speed, outer_d):
@@ -91,8 +119,12 @@ def analyze(model):
     max_moment_location = 0.0
     max_stress = 0.0
     max_stress_location = 0.0
-    yield_stress = allowables(model.material)["yield"]
-    shear_strength = allowables(model.material)["shear"]
+    if model.yield_stress is not None:
+        yield_stress = model.yield_stress
+        shear_strength = 0.75 * model.yield_stress
+    else:
+        yield_stress = allowables(model.material)["yield"]
+        shear_strength = allowables(model.material)["shear"]
     pin_area = model.n_pins * math.pi * model.pin_diameter**2 / 4
 
     max_buckling_factor = 0.0
@@ -134,15 +166,23 @@ def analyze(model):
                     max_stress_location, max_deflection, max_sag, utilization)
 
 
+def _rebuild(model, wind_speed):
+    if model.geometry_extents is None:
+        return build_model(model.tube_specs, model.overlap, model.joint,
+                           model.support_specs, wind_speed, model.material,
+                           model.pin_diameter, model.n_pins)
+    return build_model_from_geometry(model.geometry_extents, model.joint,
+                                     model.support_specs, wind_speed, model.material,
+                                     model.pin_diameter, model.n_pins, model.yield_stress)
+
+
 def survival_wind_speed(model, mode="yield"):
     if mode not in ("yield", "buckling", "pin_shear"):
         raise ValueError(f"unknown failure mode: {mode}")
     low, high = 1.0, 500.0
     for _ in range(60):
         mid = (low + high) / 2
-        m = build_model(model.tube_specs, model.overlap, model.joint,
-                        model.support_specs, mid, model.material,
-                        model.pin_diameter, model.n_pins)
+        m = _rebuild(model, mid)
         factor, _ = analyze(m).utilization[mode]
         if factor >= 1.0:
             high = mid
@@ -266,7 +306,9 @@ def fatigue_report(model, damping=0.01, height=10.0, z_0=0.05):
     act continuously; VIV life is therefore the life under sustained lock-in.
     VIV is limited to the fundamental mode: the E.7 amplitude factors (K from Table
     E.5, K_w from the (s/h)^2 shape) are only defined for the fundamental mode."""
-    from elementload.fatigue import damage_per_hour, miner_life_hours
+    from elementload.fatigue import SN_DATA, damage_per_hour, miner_life_hours
+    if model.material not in SN_DATA:
+        return dict(sources=[], damage_per_hour=0.0, life_hours=float("inf"), skipped=True)
     sources = []
     r = vortex_crosswind_response(model, damping, n_modes=1)[0]
     if r["stress_range"] > 0.0:

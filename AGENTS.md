@@ -71,10 +71,29 @@ The test skips automatically under other interpreters.
 CLI: `python -m elementload --tube D,t,L [--tube ...] --overlap M --joint rigid|slipped
 --support POS:KIND [--support ...] [--wind MPS] [--material MAT] [--pin-diameter M] [--n-pins N]
 [--damping ZETA] [--height M] [--z0 M]`
+or, for a YagiMechanical antenna design file:
+`python -m elementload --stm FILE [--element NAME] [--material MAT] [--joint ...] [--support ...]
+[--wind MPS] [--damping ZETA] [--height M] [--z0 M]`
 or the installed `elementload` entry point. Report gives per-mode survival wind speeds
 (yield, local buckling, joint pin shear) in km/h plus ASCII deflection/moment diagrams,
 and EN 1991-1-4 Annex E crosswind response and 6.3.1/Annex B along-wind dynamic factor
 sections.
+
+## .stm reader (`elementload/stm.py`)
+
+DXEngineering YagiMechanical .stm files (Format Version 2.0) store each telescoping
+element as a symmetric double cantilever: per tube segment, IS/IE are the inner/outer
+END coordinates from the element centre on one side, X/T are outer diameter / wall
+(inches), YS is the yield stress (psi) and MAT a free-form label. `parse_stm`/`read_stm`
+convert to SI; the `B*` block is the boom and is identified and skipped. Per element,
+`element_tube_extents` yields exact per-side extents; `assembly.build_from_extents`
+builds the mesh with overlap intervals carrying the combined inertia of every tube
+present (handles e.g. the triple-nested 20+16+12 sleeve in the 15m RE). The CLI runs
+the full per-element analysis/survival/dynamics report. Material: the file MAT label is
+mapped to a known key when possible (6060-T6 -> al6060-t6); the real build uses
+al6060-t66 (`--material al6060-t66`, 190 MPa yield). Unknown/custom labels fall back to
+the file YS (21756 psi = 150 MPa). Fatigue is skipped for materials without published
+S-N data (6060-T6/T66), with a NOTE in the report.
 Open items flagged: local-buckling constant (0.3) and joint overlap stiffness models are
 not yet calibrated against measured telescoping data; geometry not cross-checked against
 a tube catalog. Survival wind speed bisection caps at 500 m/s.

@@ -3,6 +3,8 @@ import math
 _MATERIALS = {
     "al6061-t6": {"yield": 276.0e6, "shear": 207.0e6},
     "al6063-t6": {"yield": 170.0e6, "shear": 128.0e6},
+    "al6060-t6": {"yield": 160.0e6, "shear": 120.0e6},
+    "al6060-t66": {"yield": 190.0e6, "shear": 142.5e6},
 }
 
 

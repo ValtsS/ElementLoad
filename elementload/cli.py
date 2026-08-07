@@ -62,15 +62,23 @@ def _deflection_samples(model, result):
     return [(n.x, abs(w)) for n, (w, _) in zip(model.nodes, result.displacements)]
 
 
-def render_report(model, result, wind_speed, damping=0.01, height=10.0, z_0=0.05):
+def render_report(model, result, wind_speed, damping=0.01, height=10.0, z_0=0.05, title=None):
     lines = []
-    lines.append("Element load analysis")
-    lines.append("=====================")
+    if title:
+        lines.append(title)
+        lines.append("=" * len(title))
+    else:
+        lines.append("Element load analysis")
+        lines.append("=====================")
     lines.append("")
     lines.append("Tubes (D x t, length):")
     for i, (d, t, L) in enumerate(model.tube_specs, start=1):
         lines.append(f"  {i}: {d * 1000:.1f} x {t * 1000:.2f} mm, {L * 1000:.0f} mm")
-    lines.append(f"Overlap: {model.overlap * 1000:.0f} mm, joint model: {model.joint}")
+    if isinstance(model.overlap, (list, tuple)):
+        ov = ", ".join(f"{o * 1000:.0f}" for o in model.overlap)
+        lines.append(f"Overlap per joint: {ov} mm, joint model: {model.joint}")
+    else:
+        lines.append(f"Overlap: {model.overlap * 1000:.0f} mm, joint model: {model.joint}")
     supports = ", ".join(f"{p}:{k}" for p, k in model.support_specs)
     lines.append(f"Supports: {supports}")
     lines.append(f"Material: {model.material}")
@@ -125,23 +133,27 @@ def render_report(model, result, wind_speed, damping=0.01, height=10.0, z_0=0.05
     lines.append("")
     from elementload.report import fatigue_report
     fat = fatigue_report(model, damping=damping, height=height, z_0=z_0)
-    lines.append(f"Fatigue (Miner's rule, R = -1, S-N {model.material}):")
-    for s in fat["sources"]:
-        if s["damage_per_hour"] > 0.0:
-            life = 1.0 / s["damage_per_hour"]
-            lines.append(
-                f"  {s['name']:>22}: range = {s['stress_range'] / 1e6:6.1f} MPa @ "
-                f"{s['frequency']:.2f} Hz -> life {life:.3g} h"
-            )
-        else:
-            lines.append(
-                f"  {s['name']:>22}: range = {s['stress_range'] / 1e6:6.1f} MPa @ "
-                f"{s['frequency']:.2f} Hz -> no fatigue damage (below endurance)"
-            )
-    if fat["life_hours"] == float("inf"):
-        lines.append("  combined life: unlimited (all sources below endurance)")
+    if fat.get("skipped"):
+        lines.append(f"Fatigue (Miner's rule, R = -1, S-N {model.material}): "
+                     "no S-N data for this material - skipped")
     else:
-        lines.append(f"  combined Miner life: {fat['life_hours']:.3g} h")
+        lines.append(f"Fatigue (Miner's rule, R = -1, S-N {model.material}):")
+        for s in fat["sources"]:
+            if s["damage_per_hour"] > 0.0:
+                life = 1.0 / s["damage_per_hour"]
+                lines.append(
+                    f"  {s['name']:>22}: range = {s['stress_range'] / 1e6:6.1f} MPa @ "
+                    f"{s['frequency']:.2f} Hz -> life {life:.3g} h"
+                )
+            else:
+                lines.append(
+                    f"  {s['name']:>22}: range = {s['stress_range'] / 1e6:6.1f} MPa @ "
+                    f"{s['frequency']:.2f} Hz -> no fatigue damage (below endurance)"
+                )
+        if fat["life_hours"] == float("inf"):
+            lines.append("  combined life: unlimited (all sources below endurance)")
+        else:
+            lines.append(f"  combined Miner life: {fat['life_hours']:.3g} h")
     lines.append("")
     lines.append("Vortex shedding crosswind response (EN 1991-1-4 Annex E, approach 1):")
     v_resp = vortex_crosswind_response(model, damping=damping, n_modes=3)
@@ -173,33 +185,84 @@ def main(argv=None):
         prog="elementload",
         description="FEM load analysis of a telescoping Yagi antenna element",
     )
-    parser.add_argument("--tube", action="append", type=_tube_spec, required=True,
+    parser.add_argument("--stm", metavar="FILE",
+                        help="YagiMechanical .stm file: analyze each telescoping element "
+                             "(boom identified and skipped)")
+    parser.add_argument("--element", metavar="NAME",
+                        help="with --stm: only analyze the element with this name")
+    parser.add_argument("--tube", action="append", type=_tube_spec,
                         metavar="D,t,L", help="tube outer diameter, wall, length (SI); repeatable")
-    parser.add_argument("--overlap", type=float, required=True, metavar="M",
+    parser.add_argument("--overlap", type=float, metavar="M",
                         help="telescoping overlap length (m)")
-    parser.add_argument("--joint", choices=("rigid", "slipped"), required=True,
+    parser.add_argument("--joint", choices=("rigid", "slipped"),
                         help="joint stiffness model")
-    parser.add_argument("--support", action="append", type=_support_spec, required=True,
+    parser.add_argument("--support", action="append", type=_support_spec,
                         metavar="POS:KIND", help="support, e.g. center:fixed; repeatable")
-    parser.add_argument("--wind", type=float, default=30.0, metavar="MPS",
-                        help="analysis wind speed in m/s (default 30)")
-    parser.add_argument("--material", default="al6061-t6",
-                        choices=("al6061-t6", "al6063-t6"))
+    parser.add_argument("--wind", type=float, default=None, metavar="MPS",
+                        help="analysis wind speed in m/s (default 30, or the .stm design WS)")
+    parser.add_argument("--material", default=None,
+                        choices=("al6061-t6", "al6063-t6", "al6060-t6", "al6060-t66"))
     parser.add_argument("--pin-diameter", type=float, default=0.004, metavar="M")
     parser.add_argument("--n-pins", type=int, default=2, metavar="N")
     parser.add_argument("--damping", type=float, default=0.01, metavar="ZETA",
                         help="structural damping ratio for dynamic response (default 0.01)")
-    parser.add_argument("--height", type=float, default=10.0, metavar="M",
-                        help="reference height above ground for turbulence (default 10)")
+    parser.add_argument("--height", type=float, default=None, metavar="M",
+                        help="reference height above ground for turbulence (default 10, or the .stm H)")
     parser.add_argument("--z0", type=float, default=0.05, metavar="M",
                         help="terrain roughness length z0 (default 0.05, terrain category II)")
     args = parser.parse_args(argv)
 
+    if args.stm is not None:
+        if args.tube is not None or args.overlap is not None:
+            parser.error("--tube/--overlap are not used with --stm (geometry comes from the file)")
+        return _main_stm(args, parser)
+
+    if args.tube is None or args.overlap is None or args.joint is None or args.support is None:
+        parser.error("either --stm or --tube/--overlap/--joint/--support must be given")
+
+    wind = 30.0 if args.wind is None else args.wind
+    height = 10.0 if args.height is None else args.height
     model = build_model(args.tube, args.overlap, args.joint, args.support,
-                        args.wind, args.material, args.pin_diameter, args.n_pins)
+                        wind, args.material or "al6061-t6",
+                        args.pin_diameter, args.n_pins)
     result = analyze(model)
-    print(render_report(model, result, args.wind, damping=args.damping,
-                        height=args.height, z_0=args.z0))
+    print(render_report(model, result, wind, damping=args.damping,
+                        height=height, z_0=args.z0))
+
+
+def _main_stm(args, parser):
+    from elementload.stm import read_stm, element_tube_extents
+    from elementload.report import build_model_from_geometry
+    stm = read_stm(args.stm)
+    print(f"YagiMechanical file: {args.stm}")
+    print(f"Antenna: {stm.antenna}, height H = {stm.height:.2f} m, design wind "
+          f"WS = {stm.wind_speed * KMH_PER_MPS:.1f} km/h ({stm.wind_speed:.1f} m/s)")
+    if stm.boom is not None:
+        b = stm.boom.segments[0]
+        print(f"Boom ({stm.boom.key}): {b.outer_d * 1000:.1f} x {b.wall * 1000:.2f} mm, "
+              f"length {b.inner_end * 1000:.0f} mm - identified, skipped (per-element analysis)")
+    elements = stm.elements
+    if args.element is not None:
+        wanted = args.element.lower()
+        matches = [e for e in stm.elements if e.name.lower() == wanted]
+        if not matches:
+            parser.error(f"no element named {args.element!r} in {args.stm}")
+        elements = matches
+    print(f"Elements: {', '.join(e.name for e in elements)}")
+    wind = args.wind if args.wind is not None else stm.wind_speed
+    height = args.height if args.height is not None else stm.height
+    for el in elements:
+        mat = args.material or el.material_key
+        yield_stress = None if mat is not None else el.yield_stress
+        model = build_model_from_geometry(
+            element_tube_extents(el), args.joint or "rigid",
+            args.support or [("center", "fixed")], wind, mat or el.material,
+            args.pin_diameter, args.n_pins, yield_stress)
+        result = analyze(model)
+        title = f"{el.name} ({el.freq / 1e6:.2f} MHz, mount {el.mount_pos * 1000:.0f} mm)"
+        print()
+        print(render_report(model, result, wind, damping=args.damping,
+                            height=height, z_0=args.z0, title=title))
 
 
 if __name__ == "__main__":

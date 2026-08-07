@@ -149,3 +149,15 @@ def survival_wind_speed(model, mode="yield"):
         else:
             low = mid
     return (low + high) / 2
+
+
+def natural_frequencies(model, n_modes=3):
+    from elementload.dynamics import natural_frequencies as _nf
+    masses = [seg.mass_per_length for seg in model.segments]
+    return _nf(model.nodes, model.elements, model.supports, masses, n_modes)
+
+
+def _model_mass(model):
+    # length-weighted average mass per length (representative of the element)
+    total_length = sum(s.x1 - s.x0 for s in model.segments)
+    return sum(s.mass_per_length * (s.x1 - s.x0) for s in model.segments) / total_length

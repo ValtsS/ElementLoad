@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from elementload.geometry import tube_inertia
+from elementload.geometry import tube_inertia, tube_mass_per_length
 
 
 @dataclass(frozen=True)
@@ -21,6 +21,7 @@ class Segment:
     inertia: float
     e_modulus: float = 69.0e9
     is_overlap: bool = False
+    mass_per_length: float = 0.0
 
 
 def _overlap_inertia(prev, cur, joint):
@@ -46,6 +47,8 @@ def _build_half(tubes, overlap, joint):
                 center.wall,
                 tube_inertia(center.outer_d, center.wall),
                 center.e_modulus,
+                False,
+                tube_mass_per_length(center.outer_d, center.wall, center.density),
             )
         )
     x = inner_end if inner_end > 0 else 0
@@ -61,6 +64,8 @@ def _build_half(tubes, overlap, joint):
                 _overlap_inertia(prev, cur, joint),
                 prev.e_modulus,
                 True,
+                tube_mass_per_length(prev.outer_d, prev.wall, prev.density)
+                + tube_mass_per_length(cur.outer_d, cur.wall, cur.density),
             )
         )
         x += overlap
@@ -74,6 +79,7 @@ def _build_half(tubes, overlap, joint):
                 tube_inertia(cur.outer_d, cur.wall),
                 cur.e_modulus,
                 False,
+                tube_mass_per_length(cur.outer_d, cur.wall, cur.density),
             )
         )
         x += exposed
@@ -83,7 +89,8 @@ def _build_half(tubes, overlap, joint):
 def build_telescoping(tubes, overlap, joint):
     right = _build_half(tubes, overlap, joint)
     left = [
-        Segment(-s.x1, -s.x0, s.outer_d, s.wall, s.inertia, s.e_modulus, s.is_overlap)
+        Segment(-s.x1, -s.x0, s.outer_d, s.wall, s.inertia, s.e_modulus,
+                s.is_overlap, s.mass_per_length)
         for s in reversed(right)
     ]
     segments = left + right

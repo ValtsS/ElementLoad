@@ -91,6 +91,19 @@ def render_report(model, result, wind_speed):
     limiting = min(survivals, key=survivals.get)
     lines.append(f"  LIMITING MODE: {limiting} at {survivals[limiting] * KMH_PER_MPS:.1f} km/h")
     lines.append("")
+    lines.append("Dynamics (damping zeta = 0.01):")
+    from elementload.report import natural_frequencies
+    from elementload.dynamics import critical_wind_speed, scruton_number
+    from elementload.report import _model_mass
+    freqs = natural_frequencies(model, n_modes=3)
+    for i, f in enumerate(freqs, start=1):
+        v_crit = critical_wind_speed(f, model.tube_specs[0][0])
+        lines.append(f"  mode {i}: f = {f:6.2f} Hz, lock-in at V_crit = {v_crit * KMH_PER_MPS:6.0f} km/h")
+    m_eff = _model_mass(model)
+    d_ref = model.tube_specs[0][0]
+    sc = scruton_number(m_eff, 0.01, d_ref)
+    lines.append(f"  effective mass {m_eff:.3f} kg/m, Scruton Sc = {sc:.1f}")
+    lines.append("")
     lines.append("Deflection |w| along element (mm):")
     samples = _deflection_samples(model, result)
     chart = _ascii_chart([(x, y * 1000) for x, y in samples])

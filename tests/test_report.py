@@ -1,6 +1,6 @@
 import pytest
 
-from elementload.report import build_model, analyze, survival_wind_speed
+from elementload.report import build_model, analyze, survival_wind_speed, natural_frequencies
 from elementload.geometry import tube_inertia, tube_section_modulus, tube_area
 
 E = 69.0e9
@@ -135,3 +135,29 @@ def test_self_weight_sag_independent_of_wind():
     m0 = build_model(tubes, overlap=0.0, joint="rigid", supports=[("center", "fixed")], wind_speed=0.0)
     m40 = build_model(tubes, overlap=0.0, joint="rigid", supports=[("center", "fixed")], wind_speed=40.0)
     assert analyze(m0).max_sag == pytest.approx(analyze(m40).max_sag, rel=1e-9)
+
+
+def test_natural_frequencies_single_tube_matches_cantilever():
+    # single tube clamped at center: each half is a cantilever of length L/2
+    D, t, length = 0.030, 0.002, 2.0
+    tubes = [(D, t, length)]
+    model = build_model(tubes, overlap=0.0, joint="rigid", supports=[("center", "fixed")], wind_speed=40.0)
+    m = tube_area(D, t) * AL_DENSITY
+    l = length / 2
+    expected = (1.8751**2 / (2 * 3.14159)) * (E * tube_inertia(D, t) / (m * l**4)) ** 0.5
+    f = natural_frequencies(model, n_modes=1)
+    # single segment per half is a coarse mesh; 1-element cantilever is ~0.5% stiff
+    assert f[0] == pytest.approx(expected, rel=1e-2)
+
+
+def test_natural_frequencies_overlap_uses_combined_mass():
+    # telescoping half-span (0.9 m) is shorter than single-tube half-span (1.0 m),
+    # so its fundamental is higher
+    single = [(0.030, 0.002, 2.0)]
+    m1 = build_model(single, overlap=0.0, joint="rigid", supports=[("center", "fixed")], wind_speed=40.0)
+    telescoping = [(0.030, 0.002, 0.6), (0.025, 0.002, 0.6)]
+    m2 = build_model(telescoping, overlap=0.05, joint="rigid", supports=[("center", "fixed")], wind_speed=40.0)
+    f1 = natural_frequencies(m1, n_modes=1)[0]
+    f2 = natural_frequencies(m2, n_modes=1)[0]
+    assert f2 > f1
+    assert f2 > 0.0

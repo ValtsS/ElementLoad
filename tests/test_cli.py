@@ -45,6 +45,9 @@ def test_cli_subprocess_acceptance():
     assert "km/h" in result.stdout
     assert "N.m" in result.stdout
     assert "MPa" in result.stdout
+    assert "Dynamics" in result.stdout
+    assert "lock-in at V_crit" in result.stdout
+    assert "Scruton" in result.stdout
 
 
 def test_cli_invalid_tube_arg():

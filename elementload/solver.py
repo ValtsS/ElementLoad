@@ -52,19 +52,49 @@ def _elem_consistent_load(q, L):
     return np.array([q * L / 2, q * L**2 / 12, q * L / 2, -q * L**2 / 12])
 
 
+def _elem_mass_matrix(m, L):
+    # consistent mass matrix for a 2-node Euler-Bernoulli element
+    return m * L / 420 * np.array(
+        [
+            [156, 22 * L, 54, -13 * L],
+            [22 * L, 4 * L**2, 13 * L, -3 * L**2],
+            [54, 13 * L, 156, -22 * L],
+            [-13 * L, -3 * L**2, -22 * L, 4 * L**2],
+        ]
+    )
+
+
+def _element_dofs(e):
+    return [2 * e.i, 2 * e.i + 1, 2 * e.j, 2 * e.j + 1]
+
+
+def assemble_stiffness(nodes, elements):
+    ndof = 2 * len(nodes)
+    k_global = np.zeros((ndof, ndof))
+    for e in elements:
+        L = nodes[e.j].x - nodes[e.i].x
+        k = _elem_stiff_matrix(e.e * e.inertia, L)
+        dofs = _element_dofs(e)
+        k_global[np.ix_(dofs, dofs)] += k
+    return k_global
+
+
+def constraint_dofs(supports, ndof):
+    constrained = np.zeros(ndof, dtype=bool)
+    for s in supports:
+        constrained[2 * s.node] = True
+        if s.kind == "fixed":
+            constrained[2 * s.node + 1] = True
+    return constrained
+
+
 def solve(nodes, elements, supports, loads):
     n = len(nodes)
     ndof = 2 * n
-    k_global = np.zeros((ndof, ndof))
+    k_global = assemble_stiffness(nodes, elements)
     f_global = np.zeros(ndof)
 
     length = {id(e): nodes[e.j].x - nodes[e.i].x for e in elements}
-
-    for e in elements:
-        L = length[id(e)]
-        k = _elem_stiff_matrix(e.e * e.inertia, L)
-        dofs = [2 * e.i, 2 * e.i + 1, 2 * e.j, 2 * e.j + 1]
-        k_global[np.ix_(dofs, dofs)] += k
 
     for load in loads:
         if isinstance(load, PointLoad):
@@ -74,16 +104,12 @@ def solve(nodes, elements, supports, loads):
             e = elements[load.element]
             L = length[id(e)]
             f = _elem_consistent_load(load.q, L)
-            dofs = [2 * e.i, 2 * e.i + 1, 2 * e.j, 2 * e.j + 1]
+            dofs = _element_dofs(e)
             f_global[dofs] += f
         else:
             raise TypeError(f"unsupported load type: {type(load)}")
 
-    constrained = np.zeros(ndof, dtype=bool)
-    for s in supports:
-        constrained[2 * s.node] = True
-        if s.kind == "fixed":
-            constrained[2 * s.node + 1] = True
+    constrained = constraint_dofs(supports, ndof)
 
     free = ~constrained
     k_red = k_global[np.ix_(free, free)]

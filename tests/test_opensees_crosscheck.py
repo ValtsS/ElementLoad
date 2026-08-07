@@ -1,6 +1,9 @@
+import math
+
 import pytest
 
 from elementload.assembly import Tube, build_telescoping
+from elementload.dynamics import natural_frequencies, mass_per_length
 from elementload.geometry import tube_area
 from elementload.report import wind_and_weight_load
 from elementload.solver import (
@@ -99,3 +102,53 @@ def test_opensees_crosscheck_telescoping_cantilever():
         for (w, _), w_osees in zip(u_ours, disp_osees):
             assert abs(w) == pytest.approx(abs(w_osees), rel=1e-6)
         assert m_ours == pytest.approx(m_osees, rel=1e-6)
+
+
+def _refined(segments, per_segment):
+    xs = []
+    es = []
+    x = segments[0].x0
+    for s in segments:
+        L = s.x1 - s.x0
+        for k in range(per_segment):
+            xs.append(x + L * k / per_segment)
+            es.append(s)
+        x = s.x1
+    xs.append(segments[-1].x1)
+    return xs, es
+
+
+def test_opensees_crosscheck_telescoping_frequencies():
+    tubes = [Tube(0.030, 0.002, 0.600),
+             Tube(0.025, 0.002, 0.600),
+             Tube(0.020, 0.002, 0.600),
+             Tube(0.016, 0.0015, 0.600)]
+    segments = _right_half_segments(tubes, 0.05, "rigid")
+    xs, es = _refined(segments, 24)
+    masses = [mass_per_length(s.outer_d, s.wall, 2700.0) for s in es]
+    nodes = [Node(x) for x in xs]
+    index = {x: k for k, x in enumerate(xs)}
+    elements = [Element(index[xs[i]], index[xs[i + 1]], s.e_modulus, s.inertia)
+                for i, s in enumerate(es)]
+    supports = [Support(0, "fixed")]
+    f_ours = natural_frequencies(nodes, elements, supports, masses, n_modes=3)
+
+    ops = openseespy
+    ops.wipe()
+    ops.model("basic", "-ndm", 2, "-ndf", 3)
+    for k, x in enumerate(xs, start=1):
+        ops.node(k, x, 0.0)
+    ops.fix(1, 1, 1, 1)
+    ops.geomTransf("Linear", 1)
+    for k, (i, s) in enumerate(zip(range(len(xs) - 1), es), start=1):
+        ops.element("elasticBeamColumn", k, i + 1, i + 2,
+                    tube_area(s.outer_d, s.wall), s.e_modulus, s.inertia, 1,
+                    "-mass", mass_per_length(s.outer_d, s.wall, 2700.0))
+    ops.numberer("RCM")
+    ops.constraints("Plain")
+    ops.system("FullGeneral")
+    lam = ops.eigen("-fullGenLapack", 3)
+    f_osees = [math.sqrt(la) / (2 * math.pi) for la in lam]
+    ops.wipe()
+    for got, exp in zip(f_ours, f_osees):
+        assert got == pytest.approx(exp, rel=1e-3)

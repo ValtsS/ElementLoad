@@ -92,11 +92,20 @@ present (handles e.g. the triple-nested 20+16+12 sleeve in the 15m RE). The CLI 
 the full per-element analysis/survival/dynamics report. Material: the file MAT label is
 mapped to a known key when possible (6060-T6 -> al6060-t6); the real build uses
 al6060-t66 (`--material al6060-t66`, 190 MPa yield). Unknown/custom labels fall back to
-the file YS (21756 psi = 150 MPa). Fatigue is skipped for materials without published
-S-N data (6060-T6/T66), with a NOTE in the report.
+the file YS (21756 psi = 150 MPa). Fatigue is computed for al6061-t6/al6063-t6/
+al6060-t6/al6060-t66 (S-N curves in `fatigue.py` SN_DATA); unknown labels skip fatigue
+with a NOTE in the report.
 Open items flagged: local-buckling constant (0.3) and joint overlap stiffness models are
 not yet calibrated against measured telescoping data; geometry not cross-checked against
 a tube catalog. Survival wind speed bisection caps at 500 m/s.
+
+Reference results (`data/mechanical2.stm`, design wind 145.9 km/h, center-fixed, rigid
+joints): yield is ALWAYS the limiting mode (buckling ~700+ km/h, pin shear ~1800 km/h).
+With al6060-t6 (160 MPa) 4/7 elements FAIL the design wind (15m RE 136.8, 15m DE 143.7,
+10m RE 136.4, 10m D1 142.7 km/h); with al6060-t66 (190 MPa) all pass (149.5..172.9 km/h).
+Fatigue is a non-issue for this antenna: gust buffeting stress range ~4-7 MPa and VIV
+~0.1-0.2 MPa vs 67-70 MPa endurance -> unlimited life. Useful as a sanity-check fixture
+when changing the solver or material data.
 
 ## Dynamic loading plan (roadmap item 8)
 
@@ -179,6 +188,12 @@ Physical targets (all testable against closed-form or an independent solver):
   — done (fatigue.py + fatigue_report + CLI Fatigue block)
   Open items: no fatigue concentration factor (Kt); welded-joint/mean-stress
   knock-downs (Yahr factor of 2/20) not applied; 6063-T6 curve is a scaled estimate.
+  Note: 6060-T66 (67 MPa) is LOWER than 6060-T6 (70 MPa) per MakeItFrom despite the
+  higher UTS — do NOT assume T66 scales fatigue from T6 by UTS ratio.
+  Potential inconsistency: failure.py allowables (al6060-t6 160 MPa, al6060-t66 190 MPa)
+  exceed EN 755-2 minimums (150/160 MPa yield, 190/215 MPa UTS); the .stm file YS
+  (21756 psi = 150 MPa) matches EN 755-2 better. Decide whether to use file YS for
+  .stm analysis instead of the material-name table.
 
 ### 8.5 Multi-element model (follow-on)
 - Load multiple telescoping elements (e.g., a Yagi boom with several elements) as a

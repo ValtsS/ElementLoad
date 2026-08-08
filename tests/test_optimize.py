@@ -9,6 +9,7 @@ from elementload.optimize import (
     pick_tube,
     read_catalog,
     size_from_extents,
+    snap_lengths,
 )
 from elementload.report import build_model_from_geometry, survival_wind_speed
 from elementload.stm import element_tube_extents, read_stm
@@ -127,3 +128,32 @@ def test_size_from_extents_raises_when_chain_infeasible():
     with pytest.raises(ValueError, match="bore chain"):
         size_from_extents(tubes, "rigid", [("center", "fixed")], 55.0,
                           el.material_key, el.yield_stress, catalog=CATALOG)
+
+
+def test_snap_lengths_rounds_to_step():
+    from elementload.assembly import TubeExtent
+    tubes = [TubeExtent(0.045, 0.002, 0.0, 0.55),
+             TubeExtent(0.040, 0.002, 0.40, 1.15),
+             TubeExtent(0.012, 0.001, 0.45, 1.60)]
+    snapped = snap_lengths(tubes, 0.005)
+    for t in snapped:
+        length = t.inner_end - t.inner_start
+        assert abs(round(length / 0.005) - length / 0.005) < 1e-9
+    # inner joints stay fixed; the tip absorbs the rounding
+    assert snapped[0].inner_start == 0.0
+    assert snapped[0].inner_end == 0.55
+    assert snapped[1].inner_start == 0.40
+    assert snapped[2].inner_end >= 1.60
+
+
+def test_size_from_extents_with_length_step_survives():
+    stm = read_stm(_path("a1.stm"))
+    el = [e for e in stm.elements if e.name == "20m RE"][0]
+    tubes = element_tube_extents(el)
+    opt = size_from_extents(tubes, "rigid", [("center", "fixed")],
+                            stm.wind_speed, el.material_key, el.yield_stress,
+                            catalog=CATALOG, length_step=0.005)
+    model = build_model_from_geometry(opt, "rigid", [("center", "fixed")],
+                                      stm.wind_speed, el.material_key,
+                                      yield_stress=el.yield_stress)
+    assert survival_wind_speed(model, "yield") >= stm.wind_speed

@@ -137,16 +137,18 @@ def fits_inside(inner_tube, outer_tube, clearance=1.0e-3):
 
 def size_from_extents(tubes, joint, supports, wind_speed, material,
                       yield_stress=None, catalog=None, pin_diameter=0.004,
-                      n_pins=2, clearance=1.0e-3):
+                      n_pins=2, clearance=1.0e-3, length_step=0.0):
     """Deterministic envelope sizing: choose the lightest catalog tube for each
     stock tube position so that no tube yields or locally buckles at wind_speed,
     keeping the telescoping fit (each tube fits inside its inner neighbour with
     `clearance` slop). Re-solves to fixed point because the envelope depends on
-    the diameters (drag grows with D). Returns a new TubeExtent list."""
+    the diameters (drag grows with D). With `length_step > 0`, per-side tube
+    lengths are snapped to that increment for practical manufacturing. Returns a
+    new TubeExtent list."""
     from elementload.report import allowables
     if yield_stress is None:
         yield_stress = allowables(material)["yield"]
-    current = list(tubes)
+    current = snap_lengths(tubes, length_step) if length_step > 0.0 else list(tubes)
     for _ in range(MAX_ITER):
         moments = per_tube_max_moment(current, joint, supports, wind_speed,
                                       material, yield_stress, pin_diameter, n_pins)
@@ -158,6 +160,20 @@ def size_from_extents(tubes, joint, supports, wind_speed, material,
             return next_tubes
         current = next_tubes
     return current
+
+
+def snap_lengths(tubes, step):
+    """Snap each per-side tube length to a multiple of `step`, keeping the inner
+    (centre-side) joint fixed and absorbing the rounding at the tip."""
+    snapped = []
+    for i, t in enumerate(tubes):
+        if i == len(tubes) - 1:
+            inner_end = max(round((t.inner_end - t.inner_start) / step) * step
+                            + t.inner_start, t.inner_start + step)
+        else:
+            inner_end = round((t.inner_end - t.inner_start) / step) * step + t.inner_start
+        snapped.append(TubeExtent(t.outer_d, t.wall, t.inner_start, inner_end))
+    return snapped
 
 
 def _size_telescoped(moments, catalog, yield_stress, clearance):

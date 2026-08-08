@@ -4,6 +4,7 @@ import math
 from elementload.report import build_model, analyze, survival_wind_speed, build_model_from_geometry
 from elementload.stm import read_stm, element_tube_extents
 from elementload.solver import internal_moment
+from elementload.optimize import element_mass, read_catalog, size_from_extents
 
 _MODES = ("yield", "buckling", "pin_shear")
 
@@ -235,6 +236,40 @@ def _analyze_es_pair(el, wind, args, parser):
     return labels, models, results
 
 
+def render_optimization(opt_tubes, stock_tubes, wind_speed, material, yield_stress,
+                        joint, supports, pin_diameter, n_pins, clearance):
+    """Comparison of the stock element vs. the catalog-optimized tube set."""
+    from elementload.optimize import element_mass
+    from elementload.report import build_model_from_geometry
+    stock_model = build_model_from_geometry(
+        stock_tubes, joint, supports, wind_speed, material,
+        pin_diameter, n_pins, yield_stress)
+    opt_model = build_model_from_geometry(
+        opt_tubes, joint, supports, wind_speed, material,
+        pin_diameter, n_pins, yield_stress)
+    lines = []
+    lines.append(f"Optimization at target wind {wind_speed:.1f} m/s "
+                 f"(catalog-constrained, clearance {clearance:g} m):")
+    lines.append(f"  {'':8}{'stock':>22}{'optimized':>22}")
+    stock_mass = element_mass(stock_tubes)
+    opt_mass = element_mass(opt_tubes)
+    lines.append(f"  {'mass':<8}{stock_mass * 1000:22.1f}{opt_mass * 1000:22.1f} g")
+    lines.append(f"  {'saving':<8}{'':22}{100 * (1 - opt_mass / stock_mass):21.1f} %")
+    lines.append("  tube chain (centre -> tip):")
+    for a, b in zip(stock_tubes, opt_tubes):
+        mark = " " if (round(a.outer_d, 6), round(a.wall, 6)) == \
+            (round(b.outer_d, 6), round(b.wall, 6)) else "*"
+        lines.append(
+            f"    {mark} {a.outer_d * 1000:5.1f} x {a.wall * 1000:3.2f} mm  ->  "
+            f"{b.outer_d * 1000:5.1f} x {b.wall * 1000:3.2f} mm  "
+            f"({a.inner_start * 1000:.0f}..{a.inner_end * 1000:.0f} mm)")
+    lines.append("  survival wind speed (yield):")
+    for label, model in (("stock", stock_model), ("optimized", opt_model)):
+        v = survival_wind_speed(model, "yield")
+        lines.append(f"    {label:<10}{v:22.1f} m/s")
+    return "\n".join(lines)
+
+
 def _maybe_plot(args, model, result, label, wind_speed, pair=None):
     """Write a plot of `model`/`result` colored by args.plot. If `pair` is given
     (the sag model when `--es-model both`), draw both ES support models side by
@@ -262,6 +297,17 @@ def main(argv=None):
                              "(boom identified and skipped)")
     parser.add_argument("--element", metavar="NAME",
                         help="with --stm: only analyze the element with this name")
+    parser.add_argument("--optimize", action="store_true",
+                        help="with --stm and --element: re-size the element tubes from the "
+                             "tube catalog so it just survives the target wind speed")
+    parser.add_argument("--catalog", metavar="FILE", default=None,
+                        help="tube stock catalog CSV (D_mm, t_mm rows); used by --optimize "
+                             "(default data/tube_catalog.csv)")
+    parser.add_argument("--clearance", type=float, default=1.0e-3, metavar="M",
+                        help="telescoping clearance between tubes (default 1 mm)")
+    parser.add_argument("--length-step", type=float, default=0.0, metavar="M",
+                        help="snap per-side tube lengths to this increment (e.g. 0.005 "
+                             "for 5 mm); 0 disables snapping")
     parser.add_argument("--tube", action="append", type=_tube_spec,
                         metavar="D,t,L", help="tube outer diameter, wall, length (SI); repeatable")
     parser.add_argument("--overlap", type=float, metavar="M",
@@ -336,6 +382,29 @@ def _main_stm(args, parser):
     print(f"Elements: {', '.join(e.name for e in elements)}")
     wind = args.wind if args.wind is not None else stm.wind_speed
     height = args.height if args.height is not None else stm.height
+    if args.optimize and len(elements) != 1:
+        parser.error("--optimize requires exactly one element (use --element NAME)")
+    if args.optimize:
+        el = elements[0]
+        mat = args.material or el.material_key
+        yield_stress = None if mat is not None else el.yield_stress
+        supports = args.support or [("center", "fixed")]
+        catalog_path = args.catalog
+        if catalog_path is None:
+            import os
+            catalog_path = os.path.join(os.path.dirname(__file__), "..", "data", "tube_catalog.csv")
+        catalog = read_catalog(catalog_path)
+        stock_tubes = element_tube_extents(el)
+        opt_tubes = size_from_extents(
+            stock_tubes, args.joint or "rigid", supports, wind, mat or el.material,
+            yield_stress, catalog=catalog, pin_diameter=args.pin_diameter,
+            n_pins=args.n_pins, clearance=args.clearance,
+            length_step=args.length_step)
+        print(render_optimization(
+            opt_tubes, stock_tubes, wind, mat or el.material, yield_stress,
+            args.joint or "rigid", supports, args.pin_diameter, args.n_pins,
+            args.clearance))
+        return
     for el in elements:
         mat = args.material or el.material_key
         yield_stress = None if mat is not None else el.yield_stress

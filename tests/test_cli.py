@@ -164,3 +164,28 @@ def test_cli_stm_unknown_element_rejected():
                             capture_output=True, text=True, timeout=120)
     assert result.returncode != 0
     assert "no element named" in result.stderr
+
+
+def test_cli_optimize_reports_stock_vs_optimized():
+    code = ("from elementload.cli import main; "
+            "main(['--stm', 'data/a1.stm', '--element', '20m RE', '--optimize'])")
+    result = subprocess.run([sys.executable, "-c", code],
+                            capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    assert "Optimization at target wind" in out
+    assert "stock" in out and "optimized" in out
+    assert "mass" in out and "saving" in out
+    # the 20x2.0 -> 20x1.5 clearance fix is flagged
+    assert "20.0 x 1.50 mm" in out
+    assert "survival wind speed (yield)" in out
+    assert "m/s" in out
+
+
+def test_cli_optimize_requires_single_element():
+    code = ("from elementload.cli import main; "
+            "main(['--stm', 'data/a1.stm', '--optimize'])")
+    result = subprocess.run([sys.executable, "-c", code],
+                            capture_output=True, text=True, timeout=120)
+    assert result.returncode != 0
+    assert "--optimize requires exactly one element" in result.stderr

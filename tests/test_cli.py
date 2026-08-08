@@ -208,3 +208,19 @@ def test_cli_optimize_es_sweep_reports_mass_vs_position():
     feasible = [l for l in rows if "infeasible" not in l]
     assert feasible, "expected at least one feasible sweep row"
     assert any("14.01" in l for l in feasible)
+
+
+def test_cli_optimize_layout_search_reports_frontier():
+    code = ("from elementload.cli import main; "
+            "main(['--stm', 'data/a1.stm', '--element', '20m RE', '--optimize', "
+            "'--layout-search', '--layout-workers', '2'])")
+    result = subprocess.run([sys.executable, "-c", code],
+                            capture_output=True, text=True, timeout=300)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    assert "Layout design-space search" in out
+    assert "survival" in out and "mass" in out and "chain" in out
+    # the known lightest-at-design layout from the brute force is found
+    assert "40;35;30;25;20;12" in out
+    rows = [l for l in out.splitlines() if l.startswith(" ")]
+    assert any("<- lightest at/above design wind" in l for l in rows)

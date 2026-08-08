@@ -15,6 +15,37 @@ E = 69.0e9
 I = 1.732902508e-8
 
 
+def test_factorized_solver_matches_solve():
+    # pre-factored stiffness must give the same displacements as solve()
+    from elementload.solver import FactorizedSolver
+    nodes = [Node(0.0), Node(1.0), Node(2.0)]
+    elements = [Element(0, 1, E, I), Element(1, 2, E, I)]
+    supports = [Support(0, "fixed"), Support(2, "pin")]
+    loads = [PointLoad(1, force=-100.0), DistributedLoad(0, -20.0)]
+    u_ref = solve(nodes, elements, supports, loads)
+    u_fac = FactorizedSolver(nodes, elements, supports).solve(loads)
+    for a, b in zip(u_ref, u_fac):
+        assert a == pytest.approx(b, rel=1e-12)
+
+
+def test_factorized_solver_multiple_load_sets():
+    # reuse the factor with different RHS: still matches solve()
+    from elementload.solver import FactorizedSolver
+    nodes = [Node(0.0), Node(0.5), Node(1.5), Node(3.0)]
+    elements = [Element(0, 1, E, I), Element(1, 2, E, I), Element(2, 3, E, I)]
+    supports = [Support(0, "fixed")]
+    solver = FactorizedSolver(nodes, elements, supports)
+    for loads in (
+        [PointLoad(3, force=-50.0)],
+        [DistributedLoad(0, -10.0), DistributedLoad(2, -5.0)],
+        [PointLoad(1, force=25.0), PointLoad(2, force=0.0, moment=3.0)],
+    ):
+        u_ref = solve(nodes, elements, supports, loads)
+        u_fac = solver.solve(loads)
+        for a, b in zip(u_ref, u_fac):
+            assert a == pytest.approx(b, rel=1e-12)
+
+
 def test_cantilever_tip_load():
     # w(L) = P*L^3 / (3*E*I), theta(L) = P*L^2 / (2*E*I)
     L = 1.0

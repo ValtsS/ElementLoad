@@ -78,6 +78,8 @@ The test skips automatically under other interpreters.
 7. report: survival wind speed per mode + diagrams (CLI acceptance test) — done
 8. later: dynamics (modal / vortex shedding), fatigue, multi-element model
 9. optimizer: catalog-constrained mass-optimal tube sizing (`optimize.py`, CLI `--optimize`) — done
+10. layout search: brute-force tube count/overlap/taper/sleeve design space, parallel
+    (`--layout-search`, `search_layouts` in optimize.py) — done
 
 ## Optimizer (`elementload/optimize.py`)
 
@@ -118,6 +120,24 @@ Key facts:
   root, so a range of ES positions share one chain and differ only in survival.
   Sweep rows that fail sizing print `infeasible` (ES too close to centre leaves
   the outer cantilever unsupported; ES near the tip over-peaks the pin).
+- `--layout-search` (with `--optimize`) brute-forces the layout design space:
+  tube count N (default 3..8), overlap, exposed-length taper (geometric ratio)
+  and an optional sleeve collar, sizing each layout from the catalog at the
+  design wind (`geom_exposed`/`layout_from_exposed` build per-side extents).
+  The grid is embarrassingly parallel and is spread over `--layout-workers`
+  processes (default `os.cpu_count()`; `search_layouts` in optimize.py). It
+  prints the lightest catalog-sized element per survival bucket, marking the
+  lightest that meets the design wind. Known result for the 20m RE at 36.6 m/s:
+  3965.9 g with `[40;35;30;25;20;12]` (40x2.0 = 150 mm root collar, 16 mm
+  skipped, 12 mm tip) vs stock 4870.6 g; the telescoping bore chain, not
+  strength, is what fixes the root.
+- Performance: the survival-wind-speed bisection factorizes each support-set
+  stiffness once (`FactorizedSolver` in solver.py, LU) and only rebuilds the
+  load vector + back-substitutes per step — ~4x faster than rebuilding the
+  model and re-assembling K at every one of the 60 steps (108 ms -> 30 ms on
+  the 20m RE). Numba was considered and rejected: the hot cost is duplicated
+  object/assembly work, not tight numerical loops, so JIT'ing `_elem_stiff_matrix`
+  would not help and would force the decoupled solver interface into array form.
 
 CLI: `python -m elementload --tube D,t,L [--tube ...] --overlap M --joint rigid|slipped
 --support POS:KIND [--support ...] [--wind MPS] [--material MAT] [--pin-diameter M] [--n-pins N]

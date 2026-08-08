@@ -166,6 +166,8 @@ Options:
 | `--es-sweep` | sweep the ES support position, re-optimizing the tubes at each point |
 | `--es-range START END` | ES position range for the sweep (m from centre; default 0.25x..0.95x half-length) |
 | `--es-steps N` | sweep points (default 15) |
+| `--layout-search` | brute-force the layout design space (tube count, overlap, taper, sleeve) and print the lightest element per survival wind speed |
+| `--layout-workers N` | worker processes for `--layout-search` (default: all CPU cores) |
 
 `--wind MPS` is the target survival wind speed (default: the .stm design WS).
 
@@ -186,6 +188,27 @@ diameter is locked by the tip chain, so a range of ES positions give the *same*
 mass and only differ in survival. Positions too close to centre leave the outer
 cantilever unsupported (infeasible); positions near the tip put a huge moment at
 the pin and force a heavier chain.
+
+### Layout design-space search
+
+`--layout-search` brute-forces the layout itself — how many tubes, how much they
+overlap, the exposed-length taper, and an optional short sleeve collar at the
+root — sizes each layout from the catalog at the design wind, and prints the
+lightest element per survival wind speed, marking the lightest that meets the
+design wind. The grid is spread over `--layout-workers` processes (default: all
+cores):
+
+```
+elementload.cmd --stm data/a1.stm --element "20m RE" --optimize --layout-search
+```
+
+For the 20 m RE at the 36.6 m/s design wind the search finds a 3965.9 g element
+(`[40;35;30;25;20;12]`: a 150 mm 40 mm collar at the root, the 16 mm size
+skipped, 12 mm at the tip) vs 4870.6 g stock and 4751.7 g for the
+fixed-geometry optimizer. Because a telescope must host every tube inside its
+bore, the root diameter is locked by the tip chain — strength alone never fixes
+it, which is why the layout (not just the section sizes) is the real design
+lever.
 
 ## Failure modes
 
@@ -269,6 +292,7 @@ unknown labels fall back to the file YS.
 usage: elementload [-h] [--stm FILE] [--element NAME] [--optimize]
                    [--catalog FILE] [--clearance M] [--length-step M]
                    [--es-sweep] [--es-range START END] [--es-steps N]
+                   [--layout-search] [--layout-workers N]
                    [--tube D,t,L] [--overlap M] [--joint {rigid,slipped}]
                    [--support POS:KIND] [--wind MPS]
                    [--material {al6061-t6,al6063-t6,al6060-t6,al6060-t66}]
@@ -288,6 +312,8 @@ usage: elementload [-h] [--stm FILE] [--element NAME] [--optimize]
 | `--es-sweep` | with `--optimize`: sweep the ES support position, re-optimizing at each point |
 | `--es-range START END` | ES range for the sweep (m; default 0.25x..0.95x half-length) |
 | `--es-steps N` | ES sweep points (default 15) |
+| `--layout-search` | with `--optimize`: brute-force the layout design space, print lightest per survival |
+| `--layout-workers N` | worker processes for `--layout-search` (default: all CPU cores) |
 | `--tube D,t,L` | tube outer diameter, wall, length (m); repeatable |
 | `--overlap M` | telescoping overlap length (m) |
 | `--joint rigid|slipped` | overlap stiffness model |

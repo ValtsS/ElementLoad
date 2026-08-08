@@ -15,7 +15,10 @@ only the section is re-picked.
 """
 
 import math
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import replace
+import itertools
+import os
 
 from elementload.assembly import TubeExtent
 from elementload.failure import local_buckling_stress
@@ -26,6 +29,7 @@ from elementload.report import (
     build_model_from_geometry,
     element_end_forces,
     solve,
+    survival_wind_speed,
 )
 
 MM_TO_M = 1.0e-3
@@ -288,3 +292,110 @@ def _size_telescoped(moments, catalog, yield_stress, clearance):
             f"no catalog tube can carry the required loads at this wind speed: "
             f"{cause} (tip-side position {failed})")
     return picks
+
+
+def layout_from_exposed(exposed, overlap, half_length):
+    """Tube extents (innermost first) from per-tube exposed lengths: exposed[k] is
+    how far tube k protrudes beyond the tube inside it (exposed[0] = root tube
+    length), consecutive tubes overlapping by `overlap`. Returns a list of
+    TubeExtent, or None if the geometry is degenerate (negative start)."""
+    if any(e <= 0.0 for e in exposed):
+        return None
+    if overlap < 0.0:
+        return None
+    end = 0.0
+    tubes = []
+    for k, e in enumerate(exposed):
+        start = 0.0 if k == 0 else end - overlap
+        if start < -1e-9:
+            return None
+        end += e
+        tubes.append(TubeExtent(0.0, 0.002, max(start, 0.0), end))
+    if abs(end - half_length) > 1e-6:
+        return None
+    return tubes
+
+
+def geom_exposed(n, ratio, half_length, first=None):
+    """Exposed lengths of `n` telescoping tubes in a geometric taper ratio^k,
+    normalized to `half_length`. With `first` (a sleeve collar), exposed[0] is
+    that length and the rest are a geometric series over the remainder."""
+    xs = [ratio ** k for k in range(n)]
+    if first is not None:
+        rest = half_length - first
+        if rest <= 0.0 or n < 2:
+            return None
+        s = sum(xs[1:])
+        xs = [first] + [rest * x / s for x in xs[1:]]
+    else:
+        xs = [half_length * x / sum(xs) for x in xs]
+    return xs
+
+
+def _layout_search_job(job):
+    """One independent layout-search job, picklable for ProcessPoolExecutor.
+    Returns a result dict, or None when the layout/sizing is infeasible."""
+    n, overlap, ratio, sleeve, wind, half_length, material, yield_stress, \
+        joint, supports, catalog, pin_diameter, n_pins, clearance, length_step = job
+    exposed = geom_exposed(n, ratio, half_length, first=sleeve)
+    if exposed is None:
+        return None
+    layout = layout_from_exposed(exposed, overlap, half_length)
+    if layout is None:
+        return None
+    try:
+        opt = size_from_extents(layout, joint, supports, wind, material,
+                                yield_stress, catalog=catalog,
+                                pin_diameter=pin_diameter, n_pins=n_pins,
+                                clearance=clearance, length_step=length_step)
+    except ValueError:
+        return None
+    model = build_model_from_geometry(opt, joint, supports, wind, material,
+                                      pin_diameter, n_pins, yield_stress)
+    survival = survival_wind_speed(model, "yield")
+    chain = ";".join(f"{t.outer_d * 1000:.0f}" for t in opt)
+    return {
+        "n": n, "overlap": overlap, "ratio": ratio, "sleeve": sleeve,
+        "wind": wind, "mass": element_mass(opt), "survival": survival,
+        "chain": chain,
+    }
+
+
+def search_layouts(tubes, joint, supports, wind_speed, material,
+                   yield_stress=None, catalog=None, pin_diameter=0.004, n_pins=2,
+                   clearance=1.0e-3, length_step=0.0,
+                   n_range=(3, 8), overlaps=(0.10, 0.15, 0.20),
+                   ratios=(0.6, 0.8, 1.0, 1.2, 1.4, 1.6),
+                   sleeves=(None, 0.150, 0.250, 0.400),
+                   target_winds=None, workers=None):
+    """Brute-force the layout design space: tube count, overlap, exposed-length
+    taper and a sleeve collar, sizing each layout from the catalog at the target
+    winds and reporting the mass and yield-survival of every feasible candidate.
+    The grid is embarrassingly parallel and is spread over `workers` processes
+    (default: os.cpu_count()). Returns a list of result dicts sorted by
+    survival wind speed."""
+    half_length = max(t.inner_end for t in tubes)
+    if target_winds is None:
+        target_winds = [wind_speed]
+    jobs = []
+    for n in range(n_range[0], n_range[1] + 1):
+        for overlap, ratio, sleeve in itertools.product(overlaps, ratios, sleeves):
+            for wind in target_winds:
+                jobs.append((n, overlap, ratio, sleeve, wind, half_length,
+                             material, yield_stress, joint, tuple(supports),
+                             catalog, pin_diameter, n_pins, clearance, length_step))
+    if workers is None:
+        workers = os.cpu_count() or 1
+    results = []
+    if workers > 1 and len(jobs) > 1:
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            for r in pool.map(_layout_search_job, jobs, chunksize=4):
+                if r is not None:
+                    results.append(r)
+    else:
+        for job in jobs:
+            r = _layout_search_job(job)
+            if r is not None:
+                results.append(r)
+    results.sort(key=lambda r: r["survival"])
+    return results

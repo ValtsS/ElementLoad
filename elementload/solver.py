@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 import numpy as np
+from scipy.linalg import lu_factor, lu_solve
 from scipy.linalg import solve as dense_solve
 
 
@@ -68,6 +69,26 @@ def _element_dofs(e):
     return [2 * e.i, 2 * e.i + 1, 2 * e.j, 2 * e.j + 1]
 
 
+def _rhs_vector(nodes, elements, loads):
+    """Global force vector from point/distributed loads."""
+    ndof = 2 * len(nodes)
+    f_global = np.zeros(ndof)
+    length = {id(e): nodes[e.j].x - nodes[e.i].x for e in elements}
+    for load in loads:
+        if isinstance(load, PointLoad):
+            f_global[2 * load.node] += load.force
+            f_global[2 * load.node + 1] += load.moment
+        elif isinstance(load, DistributedLoad):
+            e = elements[load.element]
+            L = length[id(e)]
+            f = _elem_consistent_load(load.q, L)
+            dofs = _element_dofs(e)
+            f_global[dofs] += f
+        else:
+            raise TypeError(f"unsupported load type: {type(load)}")
+    return f_global
+
+
 def assemble_stiffness(nodes, elements):
     ndof = 2 * len(nodes)
     k_global = np.zeros((ndof, ndof))
@@ -88,26 +109,37 @@ def constraint_dofs(supports, ndof):
     return constrained
 
 
+class FactorizedSolver:
+    """Linear system whose stiffness matrix is assembled and LU-factorized once
+    (for fixed nodes/elements/supports), then re-solved for many load vectors at
+    near-back-substitution cost. The geometry doesn't change across the
+    survival-wind-speed bisection, so this avoids re-assembling K 60+ times."""
+
+    def __init__(self, nodes, elements, supports):
+        n = len(nodes)
+        ndof = 2 * n
+        self._nodes = nodes
+        self._elements = elements
+        self._ndof = ndof
+        k_global = assemble_stiffness(nodes, elements)
+        self._free = ~constraint_dofs(supports, ndof)
+        k_red = k_global[np.ix_(self._free, self._free)]
+        self._lu, self._piv = lu_factor(k_red)
+
+    def solve(self, loads):
+        """Solve with a new load vector, reusing the factored stiffness."""
+        f_global = _rhs_vector(self._nodes, self._elements, loads)
+        u_red = lu_solve((self._lu, self._piv), f_global[self._free])
+        u = np.zeros(self._ndof)
+        u[self._free] = u_red
+        return [(u[2 * i], u[2 * i + 1]) for i in range(len(self._nodes))]
+
+
 def solve(nodes, elements, supports, loads):
     n = len(nodes)
     ndof = 2 * n
     k_global = assemble_stiffness(nodes, elements)
-    f_global = np.zeros(ndof)
-
-    length = {id(e): nodes[e.j].x - nodes[e.i].x for e in elements}
-
-    for load in loads:
-        if isinstance(load, PointLoad):
-            f_global[2 * load.node] += load.force
-            f_global[2 * load.node + 1] += load.moment
-        elif isinstance(load, DistributedLoad):
-            e = elements[load.element]
-            L = length[id(e)]
-            f = _elem_consistent_load(load.q, L)
-            dofs = _element_dofs(e)
-            f_global[dofs] += f
-        else:
-            raise TypeError(f"unsupported load type: {type(load)}")
+    f_global = _rhs_vector(nodes, elements, loads)
 
     constrained = constraint_dofs(supports, ndof)
 

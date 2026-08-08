@@ -6,9 +6,12 @@ from elementload.optimize import (
     _size_telescoped,
     element_mass,
     fits_inside,
+    geom_exposed,
+    layout_from_exposed,
     parse_catalog_lines,
     pick_tube,
     read_catalog,
+    search_layouts,
     size_from_extents,
     snap_lengths,
     tube_mass,
@@ -140,6 +143,74 @@ def test_size_from_extents_raises_when_catalog_too_small_for_chain():
     with pytest.raises(ValueError, match="bore"):
         size_from_extents(tubes, "rigid", [("center", "fixed")], stm.wind_speed,
                           el.material_key, el.yield_stress, catalog=small)
+
+
+def test_geom_exposed_normalizes_to_half_length():
+    L = 5.705
+    for n in range(3, 8):
+        for ratio in (0.6, 1.0, 1.6):
+            xs = geom_exposed(n, ratio, L)
+            assert xs is not None
+            assert sum(xs) == pytest.approx(L, rel=1e-9)
+            assert all(x > 0 for x in xs)
+
+
+def test_geom_exposed_sleeve_sets_first_exposed():
+    L = 5.705
+    xs = geom_exposed(6, 1.2, L, first=0.15)
+    assert xs[0] == pytest.approx(0.15)
+    assert sum(xs) == pytest.approx(L, rel=1e-9)
+
+
+def test_layout_from_exposed_builds_overlapping_extents():
+    L = 5.705
+    xs = geom_exposed(6, 1.2, L, first=0.15)
+    tubes = layout_from_exposed(xs, 0.10, L)
+    assert tubes is not None
+    assert tubes[0].inner_start == pytest.approx(0.0)
+    assert tubes[0].inner_end == pytest.approx(0.15)
+    # consecutive tubes overlap by 0.10 m
+    assert tubes[1].inner_start == pytest.approx(tubes[0].inner_end - 0.10)
+    assert tubes[-1].inner_end == pytest.approx(L)
+
+
+def test_layout_from_exposed_rejects_degenerate():
+    assert layout_from_exposed([1.0, -0.5], 0.1, 1.5) is None
+    # overlap longer than the root tube makes the next start negative
+    assert layout_from_exposed([0.5, 0.5], 0.6, 1.0) is None
+    # exposed lengths must sum to the half length
+    assert layout_from_exposed([0.5, 0.5], 0.1, 1.3) is None
+
+
+def test_search_layouts_finds_lighter_than_stock():
+    stm = read_stm(_path("a1.stm"))
+    el = [e for e in stm.elements if e.name == "20m RE"][0]
+    tubes = element_tube_extents(el)
+    results = search_layouts(
+        tubes, "rigid", [("center", "fixed")], stm.wind_speed,
+        el.material_key, None, catalog=CATALOG,
+        n_range=(6, 6), overlaps=(0.10,), ratios=(1.2,),
+        sleeves=(0.15,), target_winds=[stm.wind_speed], workers=1)
+    assert results
+    assert all(r["survival"] >= stm.wind_speed for r in results)
+    assert min(r["mass"] for r in results) < element_mass(tubes)
+    # the known lightest-at-design layout
+    lightest = min(results, key=lambda r: r["mass"])
+    assert [int(d) for d in lightest["chain"].split(";")] == [40, 35, 30, 25, 20, 12]
+
+
+def test_search_layouts_infeasible_layouts_skipped():
+    # a single tube far below the catalog minimum cannot telescope the full span
+    stm = read_stm(_path("a1.stm"))
+    el = [e for e in stm.elements if e.name == "20m RE"][0]
+    tubes = element_tube_extents(el)
+    results = search_layouts(
+        tubes, "rigid", [("center", "fixed")], stm.wind_speed,
+        el.material_key, el.yield_stress, catalog=CATALOG,
+        n_range=(1, 1), overlaps=(0.10,), ratios=(0.6,),
+        sleeves=(None,), target_winds=[stm.wind_speed], workers=1)
+    # a 1-tube element longer than the largest catalog tube cannot be built
+    assert results == []
 
 
 def test_snap_lengths_rounds_to_step():

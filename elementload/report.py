@@ -126,6 +126,16 @@ def _wind_loads(model):
             for i, seg in enumerate(model.segments)]
 
 
+def _loads_at(model, wind_speed):
+    return [DistributedLoad(i, wind_and_weight_load(seg, wind_speed, model.material))
+            for i, seg in enumerate(model.segments)]
+
+
+def _wind_loads_at(model, wind_speed):
+    return [DistributedLoad(i, wind_load(wind_speed, seg.outer_d))
+            for i, seg in enumerate(model.segments)]
+
+
 def analyze(model):
     if any(s.kind == "sag" for s in model.supports):
         return _analyze_sag(model)
@@ -254,29 +264,78 @@ def _analyze_sag(model):
                     max_stress_location, max_deflection, max_sag, utilization)
 
 
-def _rebuild(model, wind_speed):
-    if model.geometry_extents is None:
-        return build_model(model.tube_specs, model.overlap, model.joint,
-                           model.support_specs, wind_speed, model.material,
-                           model.pin_diameter, model.n_pins)
-    return build_model_from_geometry(model.geometry_extents, model.joint,
-                                     model.support_specs, wind_speed, model.material,
-                                     model.pin_diameter, model.n_pins, model.yield_stress)
-
-
 def survival_wind_speed(model, mode="yield"):
     if mode not in ("yield", "buckling", "pin_shear"):
         raise ValueError(f"unknown failure mode: {mode}")
+    from elementload.solver import FactorizedSolver
+    # Geometry is wind-speed independent: factorize each support-set stiffness
+    # once, then per bisection step only rebuild loads and back-substitute.
+    # The wind solve uses the non-sag supports; the sag/weight solve (if any)
+    # uses the full support set and is itself wind-independent.
+    is_sag = any(s.kind == "sag" for s in model.supports)
+    wind_solver = FactorizedSolver(model.nodes, model.elements, _wind_supports(model))
+    if is_sag:
+        weight_solver = FactorizedSolver(model.nodes, model.elements, model.supports)
     low, high = 1.0, 500.0
     for _ in range(60):
         mid = (low + high) / 2
-        m = _rebuild(model, mid)
-        factor, _ = analyze(m).utilization[mode]
+        factor, _ = _utilization_at(model, mode, mid, wind_solver, weight_solver if is_sag else None)
         if factor >= 1.0:
             high = mid
         else:
             low = mid
     return (low + high) / 2
+
+
+def _utilization_at(model, mode, wind_speed, wind_solver, weight_solver=None):
+    """Scalar utilization factor (mode) at a given wind speed, reusing
+    pre-factored stiffness matrices. Mirrors _analyze/_analyze_sag's utilization
+    computation without rebuilding the model or the full Analysis object."""
+    has_sag = any(s.kind == "sag" for s in model.supports)
+    yield_stress, shear_strength = _allowables(model)
+    pin_area = model.n_pins * math.pi * model.pin_diameter**2 / 4
+    max_factor = 0.0
+    if has_sag:
+        wind_loads = _wind_loads_at(model, wind_speed)
+        u_wind = wind_solver.solve(wind_loads)
+        weight_loads = self_weight_loads(model)
+        u_weight = weight_solver.solve(weight_loads)
+        for i, seg in enumerate(model.segments):
+            v_wi, m_wi, v_wj, m_wj = element_end_forces(
+                model.elements, i, model.nodes, u_wind, wind_loads)
+            v_gi, m_gi, v_gj, m_gj = element_end_forces(
+                model.elements, i, model.nodes, u_weight, weight_loads)
+            m_i = math.hypot(m_wi, m_gi)
+            m_j = math.hypot(m_wj, m_gj)
+            v_i = math.hypot(v_wi, v_gi)
+            v_j = math.hypot(v_wj, v_gj)
+            z = tube_section_modulus(seg.outer_d, seg.wall)
+            stress = max(m_i, m_j) / z
+            if mode == "yield":
+                max_factor = max(max_factor, stress / yield_stress)
+            elif mode == "buckling":
+                sigma_cr = local_buckling_stress(seg.outer_d, seg.wall, seg.e_modulus)
+                max_factor = max(max_factor, stress / sigma_cr)
+            elif seg.is_overlap:
+                shear = max(v_i, v_j)
+                max_factor = max(max_factor, (shear / pin_area) / shear_strength)
+    else:
+        loads = _loads_at(model, wind_speed)
+        u = wind_solver.solve(loads)
+        for i, seg in enumerate(model.segments):
+            v_i, m_i, v_j, m_j = element_end_forces(
+                model.elements, i, model.nodes, u, loads)
+            z = tube_section_modulus(seg.outer_d, seg.wall)
+            stress = max(abs(m_i), abs(m_j)) / z
+            if mode == "yield":
+                max_factor = max(max_factor, stress / yield_stress)
+            elif mode == "buckling":
+                sigma_cr = local_buckling_stress(seg.outer_d, seg.wall, seg.e_modulus)
+                max_factor = max(max_factor, stress / sigma_cr)
+            elif seg.is_overlap:
+                shear = max(abs(v_i), abs(v_j))
+                max_factor = max(max_factor, (shear / pin_area) / shear_strength)
+    return max_factor, 0.0
 
 
 def natural_frequencies(model, n_modes=3):

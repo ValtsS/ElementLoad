@@ -315,6 +315,51 @@ def render_es_sweep(el, wind_speed, args, parser):
     return "\n".join(lines), rows
 
 
+def render_layout_search(el, wind_speed, args, parser):
+    """Brute-force the layout design space (N, overlap, taper, sleeve) and print
+    the lightest catalog-sized element at each survival wind speed."""
+    from elementload.optimize import search_layouts
+    mat = args.material or el.material_key
+    yield_stress = None if mat is not None else el.yield_stress
+    stock_tubes = element_tube_extents(el)
+    supports = args.support
+    if supports is None:
+        supports = [("center", "fixed")]
+        if el.support_distance > 0.0:
+            es_kind = "sag" if args.es_model == "sag" else "pin"
+            supports += [(el.support_distance, es_kind), (-el.support_distance, es_kind)]
+    catalog = read_catalog(args.catalog or os.path.join(
+        os.path.dirname(__file__), "..", "data", "tube_catalog.csv"))
+    results = search_layouts(
+        stock_tubes, args.joint or "rigid", supports, wind_speed,
+        mat or el.material, yield_stress, catalog=catalog,
+        pin_diameter=args.pin_diameter, n_pins=args.n_pins,
+        clearance=args.clearance, length_step=args.length_step,
+        workers=args.layout_workers)
+    lines = []
+    lines.append(f"Layout design-space search at target wind {wind_speed:.1f} m/s "
+                 f"({len(results)} feasible of the grid, {args.layout_workers or 'all cores'} workers):")
+    lines.append(f"  {'survival':>8}  {'mass':>9}  {'N':>2}  {'ov':>4}  {'taper':>5}  "
+                 f"{'sleeve':>6}   chain (centre -> tip)")
+    best_by_survival = {}
+    for r in results:
+        key = round(r["survival"], 1)
+        if key not in best_by_survival or r["mass"] < best_by_survival[key]["mass"]:
+            best_by_survival[key] = r
+    design_met = [r for r in results if r["survival"] >= wind_speed]
+    lightest_ok = min(design_met, key=lambda r: r["mass"]) if design_met else None
+    for key in sorted(best_by_survival):
+        r = best_by_survival[key]
+        mark = " <- lightest at/above design wind" if r is lightest_ok else ""
+        lines.append(
+            f"  {r['survival']:8.1f}  {r['mass'] * 1000:8.1f} g  {r['n']:2d}  "
+            f"{r['overlap']:4.2f}  {r['ratio']:5.2f}  "
+            f"{r['sleeve'] if r['sleeve'] is not None else '-':>6}   [{r['chain']}]{mark}")
+    if lightest_ok is None:
+        lines.append("  (no layout reaches the design wind speed)")
+    return "\n".join(lines)
+
+
 def _maybe_plot(args, model, result, label, wind_speed, pair=None):
     """Write a plot of `model`/`result` colored by args.plot. If `pair` is given
     (the sag model when `--es-model both`), draw both ES support models side by
@@ -356,6 +401,12 @@ def main(argv=None):
     parser.add_argument("--es-sweep", action="store_true",
                         help="with --optimize: sweep the ES support position, re-optimizing "
                              "the tubes at each position, and print mass vs ES")
+    parser.add_argument("--layout-search", action="store_true",
+                        help="with --optimize: brute-force the layout design space "
+                             "(tube count, overlap, taper, sleeve collar) and print the "
+                             "lightest catalog-sized element per survival wind speed")
+    parser.add_argument("--layout-workers", type=int, default=None, metavar="N",
+                        help="worker processes for --layout-search (default: os.cpu_count())")
     parser.add_argument("--es-range", type=float, nargs=2, default=None, metavar=("START", "END"),
                         help="ES position range for --es-sweep (m from centre; default "
                              "0.25 x to 0.95 x element half-length)")
@@ -443,6 +494,9 @@ def _main_stm(args, parser):
         yield_stress = None if mat is not None else el.yield_stress
         if args.es_sweep:
             print(render_es_sweep(el, wind, args, parser)[0])
+            return
+        if args.layout_search:
+            print(render_layout_search(el, wind, args, parser))
             return
         supports = args.support
         if supports is None:

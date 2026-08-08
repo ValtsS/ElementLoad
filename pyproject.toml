@@ -7,6 +7,11 @@ name = "elementload"
 version = "0.1.0"
 description = "FEM-based load analysis of Yagi antenna elements"
 requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "scipy",
+    "matplotlib",
+]
 
 [project.scripts]
 elementload = "elementload.cli:main"

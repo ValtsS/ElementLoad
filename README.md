@@ -80,6 +80,28 @@ The report is split into blocks:
 Survival wind speeds are reported in **m/s** (the tool uses SI units
 throughout).
 
+## Graphical output
+
+`--plot QUANTITY` writes a matplotlib figure of the element colored by a
+response quantity along its length, with a colorbar:
+
+```
+python -m elementload --stm data/a1.stm --element "40m RE" --plot stress
+python -m elementload --tube 0.030,0.002,0.6 --tube 0.025,0.002,0.6 \
+  --tube 0.020,0.002,0.6 --tube 0.016,0.0015,0.6 --overlap 0.05 \
+  --joint rigid --support center:fixed --wind 40 --plot moment --plot-file element.png
+```
+
+Available quantities: `stress` (the default when `--plot` is used), `moment`,
+`load`, `wind_load`, `pressure`, `deflection`.
+
+The figure draws the telescoping tube geometry as a horizontal band — the
+diameters are exaggerated and labelled *not to scale*, since a true 1:1
+drawing would be invisible for a thin, long element — with a colored
+centerline gradient, marked supports and a colorbar. `--plot-file PATH`
+chooses the output file (default `<element>_<quantity>.png`). Requires
+matplotlib (an optional dependency, declared in pyproject.toml).
+
 ## Failure modes
 
 - **yield** — peak bending stress reaches the material yield stress
@@ -165,6 +187,7 @@ usage: elementload [-h] [--stm FILE] [--element NAME] [--tube D,t,L]
                    [--material {al6061-t6,al6063-t6,al6060-t6,al6060-t66}]
                    [--pin-diameter M] [--n-pins N] [--damping ZETA]
                    [--height M] [--z0 M] [--es-model {rigid,sag,both}]
+                   [--plot QUANTITY] [--plot-file PATH]
 ```
 
 | Option | Description |
@@ -183,6 +206,8 @@ usage: elementload [-h] [--stm FILE] [--element NAME] [--tube D,t,L]
 | `--height M` | reference height above ground (default 10, or the .stm H) |
 | `--z0 M` | terrain roughness length (default 0.05, terrain category II) |
 | `--es-model rigid|sag|both` | ES support model (default `both`) |
+| `--plot QUANTITY` | write a matplotlib figure colored by stress, moment, load, wind_load, pressure or deflection |
+| `--plot-file PATH` | output path for `--plot` (default `<element>_<quantity>.png`) |
 
 ## Physics background
 

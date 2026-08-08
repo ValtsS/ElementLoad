@@ -235,6 +235,15 @@ def _analyze_es_pair(el, wind, args, parser):
     return labels, models, results
 
 
+def _maybe_plot(args, model, result, label):
+    if args.plot is None:
+        return None
+    from elementload.plot import plot_element
+    path = args.plot_file or f"{label}_{args.plot}.png"
+    plot_element(model, result, path, quantity=args.plot, title=label)
+    return path
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="elementload",
@@ -269,6 +278,14 @@ def main(argv=None):
                         help="how the .stm ES element support is modelled: rigid pin, "
                              "sag rope (restrains self-weight only, no wind restraint), "
                              "or both (default: report the two results side by side)")
+    parser.add_argument("--plot", choices=("stress", "moment", "load", "wind_load",
+                                           "pressure", "deflection"), default=None,
+                        metavar="QUANTITY",
+                        help="write a matplotlib figure of the element colored by the "
+                             "given quantity (stress, moment, load, wind_load, pressure, "
+                             "deflection)")
+    parser.add_argument("--plot-file", default=None, metavar="PATH",
+                        help="output path for --plot (default <element>_<quantity>.png)")
     args = parser.parse_args(argv)
 
     if args.stm is not None:
@@ -287,6 +304,9 @@ def main(argv=None):
     result = analyze(model)
     print(render_report(model, result, wind, damping=args.damping,
                         height=height, z_0=args.z0))
+    path = _maybe_plot(args, model, result, "element")
+    if path:
+        print(f"Plot saved: {path}")
 
 
 def _main_stm(args, parser):
@@ -337,6 +357,9 @@ def _main_stm(args, parser):
         else:
             print(render_report(model, result, wind, damping=args.damping,
                                 height=height, z_0=args.z0, title=title))
+        path = _maybe_plot(args, model, result, el.name)
+        if path:
+            print(f"Plot saved: {path}")
 
 
 if __name__ == "__main__":

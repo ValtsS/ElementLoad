@@ -1,3 +1,4 @@
+import os
 import subprocess
 import sys
 
@@ -134,6 +135,26 @@ def test_cli_stm_es_model_both_default():
     assert "yield" in out
     # the full detail report is the rigid-pin model
     assert "Supports: center:fixed, 5.5:pin, -5.5:pin" in out
+
+
+def test_cli_plot_writes_file(tmp_path):
+    out = str(tmp_path / "my.png").replace("\\", "/")
+    code = ("from elementload.cli import main; "
+            "main(['--tube','0.030,0.002,0.6',"
+            "'--tube','0.025,0.002,0.6',"
+            "'--tube','0.020,0.002,0.6',"
+            "'--tube','0.016,0.0015,0.6',"
+            "'--overlap','0.05',"
+            "'--joint','rigid',"
+            "'--support','center:fixed',"
+            "'--wind','40',"
+            "'--plot','stress',"
+            "'--plot-file','%s'])")
+    result = subprocess.run([sys.executable, "-c", code % out],
+                            capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    assert os.path.exists(out)
+    assert os.path.getsize(out) > 0
 
 
 def test_cli_stm_unknown_element_rejected():

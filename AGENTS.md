@@ -36,7 +36,13 @@ The test skips automatically under other interpreters.
 ## Conventions
 
 - Package code lives in `elementload/`, tests in `tests/`.
-- Tests use pytest, plain asserts, no external test deps.
+- Tests use pytest, plain asserts, no external test deps (test suite itself
+  must run without matplotlib; tests that need it import lazily and are not
+  part of the core suite).
+- Plotting (`elementload/plot.py`, CLI `--plot`) is a matplotlib extension:
+  it must stay importable-free of side effects at module import of
+  `elementload.cli` (the `from elementload.plot import plot_element` import is
+  done lazily inside `_maybe_plot`).
 - No comments in code unless needed to explain non-obvious physics.
 - Units: SI (m, N, Pa, m/s). Wind speed in m/s.
 - Solver is decoupled behind a clean interface so the backend (scipy vs. OpenSees)

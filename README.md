@@ -27,12 +27,24 @@ pip install -e .
 The `elementload` command and the `python -m elementload` module entry point
 both work. The solver depends on NumPy and SciPy.
 
+### Windows without activating the venv
+
+Two convenience wrappers live at the repository root and pick up the project
+venv automatically (no `Activate.ps1` needed):
+
+- `elementload.cmd` — from `cmd.exe`: `elementload.cmd --stm data/a1.stm`
+- `elementload.ps1` — from PowerShell: `.\elementload.ps1 --stm data/a1.stm`
+
+Both resolve `.venv\Scripts\python.exe` and add the repository root to
+`PYTHONPATH`, so they work from any directory. To call `elementload` by short
+name from anywhere, add the repository root to your `PATH`.
+
 ## Quick start
 
 ### Analyze a simple telescoping element (command line)
 
 ```
-python -m elementload \
+elementload.cmd \
   --tube 0.030,0.002,0.6 \
   --tube 0.025,0.002,0.6 \
   --tube 0.020,0.002,0.6 \
@@ -41,6 +53,9 @@ python -m elementload \
   --support center:fixed \
   --wind 40
 ```
+
+(The `elementload.cmd` wrapper runs the venv python for you; `python -m
+elementload` works identically.)
 
 Each `--tube D,t,L` adds a tube: outer diameter (m), wall thickness (m),
 length (m). `--overlap` is the telescoping overlap length between consecutive
@@ -54,7 +69,7 @@ directly. The boom block is identified and skipped; each element is analyzed
 individually:
 
 ```
-python -m elementload --stm data/a1.stm --element "40m RE"
+elementload.cmd --stm data/a1.stm --element "40m RE"
 ```
 
 Without `--element`, every element in the file is analyzed. The file's design
@@ -86,8 +101,8 @@ throughout).
 response quantity along its length, with a colorbar:
 
 ```
-python -m elementload --stm data/a1.stm --element "40m RE" --plot stress
-python -m elementload --tube 0.030,0.002,0.6 --tube 0.025,0.002,0.6 \
+elementload.cmd --stm data/a1.stm --element "40m RE" --plot stress
+elementload.cmd --tube 0.030,0.002,0.6 --tube 0.025,0.002,0.6 \
   --tube 0.020,0.002,0.6 --tube 0.016,0.0015,0.6 --overlap 0.05 \
   --joint rigid --support center:fixed --wind 40 --plot moment --plot-file element.png
 ```

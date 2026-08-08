@@ -28,6 +28,10 @@ All commands use the project virtual environment:
 
 On non-Windows shells the venv python is `.venv/bin/python`.
 
+Windows convenience wrappers at the repo root run the tool without activating
+the venv: `elementload.cmd` (cmd.exe) and `elementload.ps1` (PowerShell); both
+resolve `.venv\Scripts\python.exe` themselves and forward all arguments.
+
 The OpenSees cross-check needs its own venv because the `openseespywin` wheel ships
 a `.pyd` built against `python312.dll`; run it under the Python 3.12 venv
 (`.venv-osees`, created with `C:\Python312\python.exe -m venv .venv-osees`).

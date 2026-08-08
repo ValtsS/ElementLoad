@@ -35,6 +35,7 @@ from elementload.report import (
 MM_TO_M = 1.0e-3
 MAX_ITER = 20
 BORE_EPS = 1.0e-9
+TIP_EXTENSION_COEFF = 0.1
 
 
 def parse_catalog_lines(lines):
@@ -236,16 +237,96 @@ def _fixed_point_iteration(start, joint, supports, wind_speed, material,
 
 def snap_lengths(tubes, step):
     """Snap each per-side tube length to a multiple of `step`, keeping the inner
-    (centre-side) joint fixed and absorbing the rounding at the tip."""
+    (centre-side) joint fixed. The tip tube keeps its exact original end, so the
+    total element length is preserved and the tip absorbs the rounding residual
+    of the inner tubes (only the non-tip tubes are rounded to the increment)."""
     snapped = []
     for i, t in enumerate(tubes):
         if i == len(tubes) - 1:
-            inner_end = max(round((t.inner_end - t.inner_start) / step) * step
-                            + t.inner_start, t.inner_start + step)
+            inner_end = t.inner_end
         else:
             inner_end = round((t.inner_end - t.inner_start) / step) * step + t.inner_start
         snapped.append(TubeExtent(t.outer_d, t.wall, t.inner_start, inner_end))
     return snapped
+
+
+def effective_diameter(tubes):
+    """Length-weighted mean outer diameter (m) over one side of the element."""
+    total_len = sum(t.inner_end - t.inner_start for t in tubes)
+    if total_len <= 0.0:
+        return 0.0
+    return sum(_d(t) * (t.inner_end - t.inner_start) for t in tubes) / total_len
+
+
+def tip_extension_for(tubes, ref_tubes, coeff=TIP_EXTENSION_COEFF):
+    """Per-side tip extension (m) compensating the resonance up-shift when the
+    optimized element's mean diameter is smaller than the reference: coeff *
+    (1 - d_opt/d_ref) * half_length. Returns 0 when the optimized element is
+    not thinner (mean diameter via `effective_diameter`)."""
+    d_opt = effective_diameter(tubes)
+    d_ref = effective_diameter(ref_tubes)
+    if d_ref <= 0.0 or d_opt >= d_ref:
+        return 0.0
+    half = max(t.inner_end for t in tubes)
+    return coeff * (1.0 - d_opt / d_ref) * half
+
+
+def extend_tip(tubes, extension):
+    """Return a copy of `tubes` with the tip tube (last in the list, outermost)
+    extended by `extension` per side; all other tubes unchanged."""
+    if extension <= 0.0 or not tubes:
+        return list(tubes)
+    out = [TubeExtent(t.outer_d, t.wall, t.inner_start, t.inner_end) for t in tubes]
+    tip = out[-1]
+    out[-1] = TubeExtent(tip.outer_d, tip.wall, tip.inner_start, tip.inner_end + extension)
+    return out
+
+
+def size_with_tip_extension(tubes, ref_tubes, joint, supports, wind_speed, material,
+                            yield_stress=None, catalog=None, pin_diameter=0.004,
+                            n_pins=2, clearance=1.0e-3, length_step=0.0,
+                            tip_extension=None, coeff=TIP_EXTENSION_COEFF):
+    """Size `tubes` from the catalog and optionally extend the tip to compensate
+    the resonance up-shift from thinner tubes. `tip_extension`:
+      - None: plain sizing, no extension;
+      - a number: fixed per-side extension (m);
+      - "auto": coeff * (1 - d_opt/d_ref) * half_length with d_ref from
+        `ref_tubes`, iterated to a fixed point because extending the tip changes
+        the drag envelope and the envelope changes the diameters the extension
+        is derived from.
+    Returns (opt_tubes, applied_extension_m)."""
+    if tip_extension is None:
+        opt = size_from_extents(tubes, joint, supports, wind_speed, material,
+                                yield_stress, catalog=catalog,
+                                pin_diameter=pin_diameter, n_pins=n_pins,
+                                clearance=clearance, length_step=length_step)
+        return opt, 0.0
+    if tip_extension != "auto":
+        ext = float(tip_extension)
+        opt = size_from_extents(extend_tip(tubes, ext), joint, supports, wind_speed,
+                                material, yield_stress, catalog=catalog,
+                                pin_diameter=pin_diameter, n_pins=n_pins,
+                                clearance=clearance, length_step=length_step)
+        return opt, ext
+    ext = 0.0
+    opt = None
+    for _ in range(MAX_ITER):
+        opt = size_from_extents(extend_tip(tubes, ext), joint, supports, wind_speed,
+                                material, yield_stress, catalog=catalog,
+                                pin_diameter=pin_diameter, n_pins=n_pins,
+                                clearance=clearance, length_step=length_step)
+        new_ext = tip_extension_for(opt, ref_tubes, coeff)
+        if abs(new_ext - ext) <= 1e-3 * max(1.0, abs(ext)):
+            # re-size at the converged extension so the returned chain matches it
+            if new_ext != ext:
+                opt = size_from_extents(extend_tip(tubes, new_ext), joint, supports,
+                                        wind_speed, material, yield_stress,
+                                        catalog=catalog, pin_diameter=pin_diameter,
+                                        n_pins=n_pins, clearance=clearance,
+                                        length_step=length_step)
+            return opt, new_ext
+        ext = new_ext
+    return opt, ext
 
 
 def _size_telescoped(moments, catalog, yield_stress, clearance):
@@ -336,7 +417,8 @@ def _layout_search_job(job):
     """One independent layout-search job, picklable for ProcessPoolExecutor.
     Returns a result dict, or None when the layout/sizing is infeasible."""
     n, overlap, ratio, sleeve, wind, half_length, material, yield_stress, \
-        joint, supports, catalog, pin_diameter, n_pins, clearance, length_step = job
+        joint, supports, catalog, pin_diameter, n_pins, clearance, length_step, \
+        tip_extension, ref_tubes, coeff = job
     exposed = geom_exposed(n, ratio, half_length, first=sleeve)
     if exposed is None:
         return None
@@ -344,37 +426,44 @@ def _layout_search_job(job):
     if layout is None:
         return None
     try:
-        opt = size_from_extents(layout, joint, supports, wind, material,
-                                yield_stress, catalog=catalog,
-                                pin_diameter=pin_diameter, n_pins=n_pins,
-                                clearance=clearance, length_step=length_step)
+        opt, applied = size_with_tip_extension(
+            layout, ref_tubes, joint, supports, wind, material,
+            yield_stress, catalog=catalog, pin_diameter=pin_diameter,
+            n_pins=n_pins, clearance=clearance, length_step=length_step,
+            tip_extension=tip_extension, coeff=coeff)
     except ValueError:
         return None
     model = build_model_from_geometry(opt, joint, supports, wind, material,
                                       pin_diameter, n_pins, yield_stress)
     survival = survival_wind_speed(model, "yield")
-    chain = ";".join(f"{t.outer_d * 1000:.0f}" for t in opt)
+    chain = ";".join(f"{t.outer_d * 1000:.0f}x{t.wall * 1000:g}" for t in opt)
+    extents = [(t.outer_d, t.wall, t.inner_start, t.inner_end) for t in opt]
     return {
         "n": n, "overlap": overlap, "ratio": ratio, "sleeve": sleeve,
         "wind": wind, "mass": element_mass(opt), "survival": survival,
-        "chain": chain,
+        "chain": chain, "tip_ext": applied, "extents": extents,
     }
 
 
 def search_layouts(tubes, joint, supports, wind_speed, material,
                    yield_stress=None, catalog=None, pin_diameter=0.004, n_pins=2,
                    clearance=1.0e-3, length_step=0.0,
-                   n_range=(3, 8), overlaps=(0.10, 0.15, 0.20),
+                   tip_extension=None, ref_tubes=None, coeff=TIP_EXTENSION_COEFF,
+                   n_range=(3, 10), overlaps=(0.10, 0.15, 0.20),
                    ratios=(0.6, 0.8, 1.0, 1.2, 1.4, 1.6),
                    sleeves=(None, 0.150, 0.250, 0.400),
                    target_winds=None, workers=None):
     """Brute-force the layout design space: tube count, overlap, exposed-length
     taper and a sleeve collar, sizing each layout from the catalog at the target
     winds and reporting the mass and yield-survival of every feasible candidate.
-    The grid is embarrassingly parallel and is spread over `workers` processes
-    (default: os.cpu_count()). Returns a list of result dicts sorted by
-    survival wind speed."""
+    `tip_extension` is passed through to each sizing (None = none, a length in m
+    = fixed per-side, "auto" = mean-diameter-based compensation using
+    `ref_tubes`, defaulting to `tubes`). The grid is embarrassingly parallel
+    and is spread over `workers` processes (default: os.cpu_count()). Returns a
+    list of result dicts sorted by survival wind speed."""
     half_length = max(t.inner_end for t in tubes)
+    if ref_tubes is None:
+        ref_tubes = tubes
     if target_winds is None:
         target_winds = [wind_speed]
     jobs = []
@@ -383,7 +472,8 @@ def search_layouts(tubes, joint, supports, wind_speed, material,
             for wind in target_winds:
                 jobs.append((n, overlap, ratio, sleeve, wind, half_length,
                              material, yield_stress, joint, tuple(supports),
-                             catalog, pin_diameter, n_pins, clearance, length_step))
+                             catalog, pin_diameter, n_pins, clearance, length_step,
+                             tip_extension, ref_tubes, coeff))
     if workers is None:
         workers = os.cpu_count() or 1
     results = []

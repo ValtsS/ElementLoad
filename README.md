@@ -168,6 +168,7 @@ Options:
 | `--es-steps N` | sweep points (default 15) |
 | `--layout-search` | brute-force the layout design space (tube count, overlap, taper, sleeve) and print the lightest element per survival wind speed |
 | `--layout-workers N` | worker processes for `--layout-search` (default: all CPU cores) |
+| `--layout-n NMIN NMAX` | tube-count range for `--layout-search` (default 3 10) |
 
 `--wind MPS` is the target survival wind speed (default: the .stm design WS).
 
@@ -203,8 +204,8 @@ elementload.cmd --stm data/a1.stm --element "20m RE" --optimize --layout-search
 ```
 
 For the 20 m RE at the 36.6 m/s design wind the search finds a 3965.9 g element
-(`[40;35;30;25;20;12]`: a 150 mm 40 mm collar at the root, the 16 mm size
-skipped, 12 mm at the tip) vs 4870.6 g stock and 4751.7 g for the
+(`[40x2;35x2;30x2;25x2;20x1.5;12x1]`: a 150 mm 40 mm collar at the root, the 16
+mm size skipped, 12 mm at the tip) vs 4870.6 g stock and 4751.7 g for the
 fixed-geometry optimizer. Because a telescope must host every tube inside its
 bore, the root diameter is locked by the tip chain — strength alone never fixes
 it, which is why the layout (not just the section sizes) is the real design

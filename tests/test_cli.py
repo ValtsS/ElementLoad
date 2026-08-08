@@ -6,6 +6,7 @@ import pytest
 
 from elementload.cli import main, _ascii_chart, render_report
 from elementload.report import build_model, analyze
+from elementload.stm import read_stm, element_tube_extents
 
 
 def test_ascii_chart_renders_rows():
@@ -182,6 +183,42 @@ def test_cli_optimize_reports_stock_vs_optimized():
     assert "m/s" in out
 
 
+def test_cli_optimize_reports_tip_extension_auto():
+    code = ("from elementload.cli import main; "
+            "main(['--stm', 'data/a1.stm', '--element', '20m RE', '--optimize'])")
+    result = subprocess.run([sys.executable, "-c", code],
+                            capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    # auto tip extension is the default; it must be reported on the optimized run
+    assert "tip extension" in out and "auto" in out
+    assert "mm/side" in out
+
+
+def test_cli_optimize_tip_extension_fixed_reported():
+    code = ("from elementload.cli import main; "
+            "main(['--stm', 'data/a1.stm', '--element', '20m RE', '--optimize', "
+            "'--tip-extension', '0.05'])")
+    result = subprocess.run([sys.executable, "-c", code],
+                            capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    assert "tip extension 50 mm/side (fixed)" in out
+
+
+def test_cli_optimize_tip_extension_zero_disables():
+    code = ("from elementload.cli import main; "
+            "main(['--stm', 'data/a1.stm', '--element', '20m RE', '--optimize', "
+            "'--tip-extension', '0'])")
+    result = subprocess.run([sys.executable, "-c", code],
+                            capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    # a plain run reports mass/survival but no tip extension line
+    assert "Optimization at target wind" in out
+    assert "tip extension" not in out
+
+
 def test_cli_optimize_requires_single_element():
     code = ("from elementload.cli import main; "
             "main(['--stm', 'data/a1.stm', '--optimize'])")
@@ -203,11 +240,12 @@ def test_cli_optimize_es_sweep_reports_mass_vs_position():
     assert "mass [kg]" in out and "survival [m/s]" in out
     assert "infeasible" in out  # near-tip and near-center positions fail
     # some feasible row carries a mass close to the optimized 14.0 kg chain
+    # (tip extension auto is on by default, so the chain is slightly heavier)
     rows = [l for l in out.splitlines() if "  " in l and l.strip() and
             l.strip()[0].isdigit()]
     feasible = [l for l in rows if "infeasible" not in l]
     assert feasible, "expected at least one feasible sweep row"
-    assert any("14.01" in l for l in feasible)
+    assert any("14.0" in l for l in feasible)
 
 
 def test_cli_optimize_layout_search_reports_frontier():
@@ -222,6 +260,55 @@ def test_cli_optimize_layout_search_reports_frontier():
     assert "survival" in out and "mass" in out and "chain" in out
     assert "Pareto frontier" in out and "per root tube diameter" in out
     # the known lightest-at-design layout from the brute force is found
-    assert "40;35;30;25;20;12" in out
+    assert "40x2;35x2;30x2;25x2;20x1.5;12x1" in out
     rows = [l for l in out.splitlines() if l.startswith(" ")]
     assert any("<- lightest at/above design wind" in l for l in rows)
+
+
+def test_cli_layout_search_emits_materialized_extent_command():
+    """The layout-search report materializes each Pareto design as an elementload
+    --extent command that reproduces the exact geometry and material."""
+    code = ("from elementload.cli import main; "
+            "main(['--stm', 'data/a1.stm', '--element', '20m RE', '--optimize', "
+            "'--layout-search', '--layout-workers', '2', '--wind', '30'])")
+    result = subprocess.run([sys.executable, "-c", code],
+                            capture_output=True, text=True, timeout=300)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    assert "Materialized Pareto designs" in out
+    assert "Per-side tube extents" in out
+    assert "tubes (centre -> tip)" in out
+    # the command that materializes the lightest design is marked
+    mat_lines = [l.strip() for l in out.splitlines()
+                 if l.startswith("      elementload") and "--extent" in l]
+    assert mat_lines, "expected at least one materialized extent command"
+    # verify the marked command reproduces the reported survival/mass by
+    # rebuilding the model from the extents it encodes
+    from elementload.cli import _materialize_command
+    from elementload.optimize import search_layouts, read_catalog, element_mass
+    from elementload.report import build_model_from_geometry, survival_wind_speed
+    from elementload.assembly import TubeExtent
+    import re
+    stm = read_stm("data/a1.stm")
+    el = [e for e in stm.elements if e.name == "20m RE"][0]
+    extents = element_tube_extents(el)
+    supports = [("center", "fixed")]
+    catalog = read_catalog("data/tube_catalog.csv")
+    results = search_layouts(
+        extents, "rigid", supports, 30.0, el.material_key, None,
+        catalog=catalog, n_range=(3, 8), overlaps=(0.10,), ratios=(1.2,),
+        sleeves=(0.15,), target_winds=[30.0], workers=2,
+        tip_extension="auto")
+    assert results
+    r = min(results, key=lambda x: x["mass"])
+    cmd = _materialize_command(r, "rigid", supports, 30.0, material="al6060-t66")
+    m = re.match(r".*?--extent\s+(.*?)(?=\s*--material)", cmd)
+    assert m, "command must carry --extent args before --material"
+    specs = [TubeExtent(*[float(v) for v in g.split(",")])
+             for g in re.findall(r"--extent\s+([\d.\-e]+,[\d.\-e]+,[\d.\-e]+,[\d.\-e]+)", cmd)]
+    assert specs, "expected per-tube extent args in the command"
+    model = build_model_from_geometry(specs, "rigid", supports, 30.0,
+                                      "al6060-t66", 0.004, 2)
+    assert survival_wind_speed(model, "yield") == pytest.approx(r["survival"], rel=1e-3)
+    # rounded positions shift mass <0.1%
+    assert element_mass(specs) == pytest.approx(r["mass"], rel=1e-3)

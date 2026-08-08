@@ -5,7 +5,7 @@ import os
 from elementload.report import build_model, analyze, survival_wind_speed, build_model_from_geometry
 from elementload.stm import read_stm, element_tube_extents
 from elementload.solver import internal_moment
-from elementload.optimize import element_mass, read_catalog, size_from_extents
+from elementload.optimize import element_mass, read_catalog, size_with_tip_extension
 
 _MODES = ("yield", "buckling", "pin_shear")
 
@@ -14,6 +14,13 @@ def _tube_spec(s):
     parts = [float(p) for p in s.split(",")]
     if len(parts) != 3:
         raise argparse.ArgumentTypeError(f"expected D,t,L got {s!r}")
+    return tuple(parts)
+
+
+def _extent_spec(s):
+    parts = [float(p) for p in s.split(",")]
+    if len(parts) != 4:
+        raise argparse.ArgumentTypeError(f"expected D,t,start,end got {s!r}")
     return tuple(parts)
 
 
@@ -27,6 +34,18 @@ def _support_spec(s):
         except ValueError:
             raise argparse.ArgumentTypeError(f"expected numeric position or 'center', got {pos!r}")
     return (pos, kind)
+
+
+def _tip_extension_spec(s):
+    if s == "auto":
+        return s
+    try:
+        v = float(s)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected 'auto' or a length in m, got {s!r}")
+    if v < 0.0:
+        raise argparse.ArgumentTypeError("tip extension must be >= 0")
+    return v
 
 
 def _ascii_chart(points, width=40, height=11):
@@ -238,7 +257,8 @@ def _analyze_es_pair(el, wind, args, parser):
 
 
 def render_optimization(opt_tubes, stock_tubes, wind_speed, material, yield_stress,
-                        joint, supports, pin_diameter, n_pins, clearance):
+                        joint, supports, pin_diameter, n_pins, clearance,
+                        tip_extension=0.0, tip_extension_kind="fixed"):
     """Comparison of the stock element vs. the catalog-optimized tube set."""
     from elementload.optimize import element_mass
     from elementload.report import build_model_from_geometry
@@ -251,6 +271,11 @@ def render_optimization(opt_tubes, stock_tubes, wind_speed, material, yield_stre
     lines = []
     lines.append(f"Optimization at target wind {wind_speed:.1f} m/s "
                  f"(catalog-constrained, clearance {clearance:g} m):")
+    if tip_extension > 0.0:
+        label = f"tip extension {tip_extension * 1000:.0f} mm/side ({tip_extension_kind})"
+        lines.append(f"  {label}")
+    elif tip_extension_kind.startswith("auto"):
+        lines.append(f"  tip extension: {tip_extension_kind} (applied {tip_extension * 1000:.0f} mm/side)")
     lines.append(f"  {'':8}{'stock':>22}{'optimized':>22}")
     stock_mass = element_mass(stock_tubes)
     opt_mass = element_mass(opt_tubes)
@@ -289,23 +314,26 @@ def render_es_sweep(el, wind_speed, args, parser):
         os.path.dirname(__file__), "..", "data", "tube_catalog.csv"))
     lines = []
     lines.append(f"ES position sweep at target wind {wind_speed:.1f} m/s "
-                 f"({n} points, {lo:.2f}..{hi:.2f} m from centre, rigid ES):")
+                 f"({n} points, {lo:.2f}..{hi:.2f} m from centre, rigid ES, "
+                 f"tip extension {_tip_extension_label(args.tip_extension)}):")
     lines.append(f"  {'ES [m]':>8}  {'mass [kg]':>10}  {'root [mm]':>9}  "
                  f"{'survival [m/s]':>14}   chain (centre -> tip)")
     rows = []
     for es in [lo + (hi - lo) * k / (n - 1) for k in range(n)]:
         supports = [("center", "fixed"), (es, "pin"), (-es, "pin")]
         try:
-            opt = size_from_extents(stock_tubes, args.joint or "rigid", supports,
-                                    wind_speed, mat or el.material, yield_stress,
-                                    catalog=catalog, pin_diameter=args.pin_diameter,
-                                    n_pins=args.n_pins, clearance=args.clearance,
-                                    length_step=args.length_step)
+            opt, _ = size_with_tip_extension(
+                stock_tubes, stock_tubes, args.joint or "rigid", supports,
+                wind_speed, mat or el.material, yield_stress,
+                catalog=catalog, pin_diameter=args.pin_diameter,
+                n_pins=args.n_pins, clearance=args.clearance,
+                length_step=args.length_step,
+                tip_extension=args.tip_extension)
             model = build_model_from_geometry(opt, args.joint or "rigid", supports,
                                               wind_speed, mat or el.material,
                                               yield_stress=yield_stress)
             v = survival_wind_speed(model, "yield")
-            chain = " ".join(f"{t.outer_d * 1000:.0f}" for t in opt)
+            chain = " ".join(f"{t.outer_d * 1000:.0f}x{t.wall * 1000:g}" for t in opt)
             rows.append((es, element_mass(opt), opt[0].outer_d * 1000, v))
             lines.append(f"  {es:8.2f}  {rows[-1][1]:10.2f}  {rows[-1][2]:9.0f}  "
                          f"{v:14.1f}   {chain}")
@@ -335,10 +363,23 @@ def render_layout_search(el, wind_speed, args, parser):
         mat or el.material, yield_stress, catalog=catalog,
         pin_diameter=args.pin_diameter, n_pins=args.n_pins,
         clearance=args.clearance, length_step=args.length_step,
-        workers=args.layout_workers)
+        tip_extension=args.tip_extension, ref_tubes=stock_tubes,
+        n_range=args.layout_n, workers=args.layout_workers)
     lines = []
     lines.append(f"Layout design-space search at target wind {wind_speed:.1f} m/s "
-                 f"({len(results)} feasible of the grid, {args.layout_workers or 'all cores'} workers):")
+                 f"(N={args.layout_n[0]}..{args.layout_n[1]}, "
+                 f"{len(results)} feasible of the grid, {args.layout_workers or 'all cores'} workers):")
+    lines.append("")
+    supports_note = ", ".join(f"{p:g}:{k}" if isinstance(p, float) else f"{p}:{k}"
+                              for p, k in supports)
+    if any(k == "sag" for _, k in supports):
+        supports_note += " (sag: wind restrained by non-sag supports only)"
+    lines.append(f"  supports: {supports_note}")
+    tip_note = f"tip extension {_tip_extension_label(args.tip_extension)}"
+    if results and any(r["tip_ext"] > 0.0 for r in results):
+        exts = [r["tip_ext"] for r in results if r["tip_ext"] > 0.0]
+        tip_note += f" (applied {min(exts) * 1000:.0f}..{max(exts) * 1000:.0f} mm/side)"
+    lines.append(f"  {tip_note}")
     lines.append("")
     design_met = [r for r in results if r["survival"] >= wind_speed]
     lightest_ok = min(design_met, key=lambda r: r["mass"]) if design_met else None
@@ -355,6 +396,17 @@ def render_layout_search(el, wind_speed, args, parser):
     if lightest_ok is None:
         lines.append("    (no layout reaches the design wind speed)")
     lines.append("")
+    lines.append("  Materialized Pareto designs (ready-to-paste elementload command):")
+    lines.append("  Per-side tube extents D,t,start,end (m from centre -> tip, innermost")
+    lines.append("  first); the command re-runs the full report + --plot on this layout:")
+    for i, r in enumerate(_pareto_frontier(results), start=1):
+        mark = " <- lightest at/above design wind" if r is lightest_ok else ""
+        cmd = _materialize_command(r, args.joint or "rigid", supports, wind_speed,
+                                   material=mat)
+        lines.append(f"  [{i}] {r['survival']:5.1f} m/s  {r['mass'] * 1000:7.1f} g{mark}")
+        lines.append(f"      {cmd}")
+        lines.append(_materialize_table(r))
+    lines.append("")
     lines.append("  Best design per root tube diameter (centre-side OD):")
     lines.append(f"    {'root':>5}  {'best survival':>13}  {'mass':>9}  "
                  f"{'meets wind?':>11}   chain (centre -> tip)")
@@ -363,6 +415,43 @@ def render_layout_search(el, wind_speed, args, parser):
         lines.append(
             f"    {root:4.0f} mm  {r['survival']:11.1f} m/s  {r['mass'] * 1000:7.1f} g  "
             f"{meets:>11}   [{r['chain']}]")
+    return "\n".join(lines)
+
+
+def _tip_extension_label(tip_extension):
+    if tip_extension == "auto":
+        return "auto (compensates mean-diameter loss)"
+    if tip_extension == 0:
+        return "none"
+    return "fixed"
+
+
+def _materialize_command(r, joint, supports, wind_speed, material=None):
+    """Elementload CLI invocation that reproduces a layout-search result's exact
+    geometry and material, via per-side tube extents (same path the .stm reader
+    uses). Extents are rounded to 1 mm (0.001 m) for readability and buildability."""
+    parts = [f"--extent {d:g},{t:g},{a:.3f},{b:.3f}" for d, t, a, b in r["extents"]]
+    cmd = ["elementload"] + parts
+    if material is not None:
+        cmd.append(f"--material {material}")
+    cmd.append(f"--joint {joint}")
+    cmd.extend(f"--support {p}:{k}" if isinstance(p, str)
+               else f"--support {p:g}:{k}" for p, k in supports)
+    cmd.append(f"--wind {wind_speed:g}")
+    return " ".join(cmd)
+
+
+def _materialize_table(r):
+    """Compact per-tube table for a layout-search result: Dxwall, start, stop,
+    exposed (per-side), and full length, all in metres."""
+    lines = ["    tubes (centre -> tip):"]
+    lines.append("    {:<12} {:>6} {:>6} {:>8} {:>8}".format(
+        "Dxwall", "start", "stop", "exposed", "full"))
+    for d, t, a, b in r["extents"]:
+        exposed = b - a
+        full = 2.0 * exposed
+        lines.append("    {:<12} {:>6.3f} {:>6.3f} {:>8.3f} {:>8.3f}".format(
+            f"{d*1000:.0f}x{t*1000:g}", a, b, exposed, full))
     return "\n".join(lines)
 
 
@@ -391,7 +480,7 @@ def _best_per_root(results, wind_speed, bucket=0.1):
     layout at a nominally-equal wind speed."""
     best = {}
     for r in results:
-        root = float(r["chain"].split(";")[0])
+        root = float(r["chain"].split(";")[0].split("x")[0])
         cur = best.get(root)
         s_r = round(r["survival"] / bucket)
         s_cur = round(cur["survival"] / bucket) if cur is not None else None
@@ -439,6 +528,12 @@ def main(argv=None):
     parser.add_argument("--length-step", type=float, default=0.0, metavar="M",
                         help="snap per-side tube lengths to this increment (e.g. 0.005 "
                              "for 5 mm); 0 disables snapping")
+    parser.add_argument("--tip-extension", default="auto", type=_tip_extension_spec,
+                        metavar="AUTO|M",
+                        help="extend the tip tube to compensate the resonance up-shift "
+                             "from thinner tubes: 'auto' (default) scales by the element's "
+                             "mean-diameter loss vs the stock element, a length in m is a "
+                             "fixed per-side extension, 0 disables")
     parser.add_argument("--es-sweep", action="store_true",
                         help="with --optimize: sweep the ES support position, re-optimizing "
                              "the tubes at each position, and print mass vs ES")
@@ -448,6 +543,9 @@ def main(argv=None):
                              "lightest catalog-sized element per survival wind speed")
     parser.add_argument("--layout-workers", type=int, default=None, metavar="N",
                         help="worker processes for --layout-search (default: os.cpu_count())")
+    parser.add_argument("--layout-n", type=int, nargs=2, default=(3, 10),
+                        metavar=("NMIN", "NMAX"),
+                        help="tube-count range for --layout-search (default 3 10)")
     parser.add_argument("--es-range", type=float, nargs=2, default=None, metavar=("START", "END"),
                         help="ES position range for --es-sweep (m from centre; default "
                              "0.25 x to 0.95 x element half-length)")
@@ -455,6 +553,10 @@ def main(argv=None):
                         help="number of sweep points for --es-sweep (default 15)")
     parser.add_argument("--tube", action="append", type=_tube_spec,
                         metavar="D,t,L", help="tube outer diameter, wall, length (SI); repeatable")
+    parser.add_argument("--extent", action="append", type=_extent_spec,
+                        metavar="D,t,START,END",
+                        help="tube outer diameter, wall, per-side extents (m from centre); "
+                             "repeatable, innermost first (same convention as .stm files)")
     parser.add_argument("--overlap", type=float, metavar="M",
                         help="telescoping overlap length (m)")
     parser.add_argument("--joint", choices=("rigid", "slipped"),
@@ -488,18 +590,45 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     if args.stm is not None:
-        if args.tube is not None or args.overlap is not None:
-            parser.error("--tube/--overlap are not used with --stm (geometry comes from the file)")
+        if args.tube is not None or args.overlap is not None or args.extent is not None:
+            parser.error("--tube/--extent/--overlap are not used with --stm "
+                         "(geometry comes from the file)")
         return _main_stm(args, parser)
 
+    if args.extent is not None:
+        if args.tube is not None or args.overlap is not None:
+            parser.error("--tube/--overlap are not used with --extent "
+                         "(per-side extents already include the overlaps)")
+        if args.joint is None or args.support is None:
+            parser.error("--extent requires --joint and --support")
+        return _main_extent(args, parser)
+
     if args.tube is None or args.overlap is None or args.joint is None or args.support is None:
-        parser.error("either --stm or --tube/--overlap/--joint/--support must be given")
+        parser.error("either --stm or --tube/--overlap/--joint/--support or "
+                     "--extent/--joint/--support must be given")
 
     wind = 30.0 if args.wind is None else args.wind
     height = 10.0 if args.height is None else args.height
     model = build_model(args.tube, args.overlap, args.joint, args.support,
                         wind, args.material or "al6061-t6",
                         args.pin_diameter, args.n_pins)
+    result = analyze(model)
+    print(render_report(model, result, wind, damping=args.damping,
+                        height=height, z_0=args.z0))
+    path = _maybe_plot(args, model, result, "element", wind)
+    if path:
+        print(f"Plot saved: {path}")
+
+
+def _main_extent(args, parser):
+    from elementload.assembly import TubeExtent
+    from elementload.report import build_model_from_geometry
+    wind = 30.0 if args.wind is None else args.wind
+    height = 10.0 if args.height is None else args.height
+    extents = [TubeExtent(*spec) for spec in args.extent]
+    model = build_model_from_geometry(
+        extents, args.joint, args.support, wind,
+        args.material or "al6061-t6", args.pin_diameter, args.n_pins)
     result = analyze(model)
     print(render_report(model, result, wind, damping=args.damping,
                         height=height, z_0=args.z0))
@@ -550,15 +679,16 @@ def _main_stm(args, parser):
             catalog_path = os.path.join(os.path.dirname(__file__), "..", "data", "tube_catalog.csv")
         catalog = read_catalog(catalog_path)
         stock_tubes = element_tube_extents(el)
-        opt_tubes = size_from_extents(
-            stock_tubes, args.joint or "rigid", supports, wind, mat or el.material,
+        opt_tubes, applied_ext = size_with_tip_extension(
+            stock_tubes, stock_tubes, args.joint or "rigid", supports, wind, mat or el.material,
             yield_stress, catalog=catalog, pin_diameter=args.pin_diameter,
             n_pins=args.n_pins, clearance=args.clearance,
-            length_step=args.length_step)
+            length_step=args.length_step, tip_extension=args.tip_extension)
         print(render_optimization(
             opt_tubes, stock_tubes, wind, mat or el.material, yield_stress,
             args.joint or "rigid", supports, args.pin_diameter, args.n_pins,
-            args.clearance))
+            args.clearance, tip_extension=applied_ext,
+            tip_extension_kind=_tip_extension_label(args.tip_extension)))
         return
     for el in elements:
         mat = args.material or el.material_key

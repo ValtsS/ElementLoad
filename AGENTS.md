@@ -84,10 +84,11 @@ The test skips automatically under other interpreters.
 ## Optimizer (`elementload/optimize.py`)
 
 CLI: `elementload --stm FILE --element NAME --optimize [--wind MPS] [--catalog FILE]
-[--clearance M] [--length-step M]`. Sizes each stock tube position to the lightest
-catalog tube that survives the target wind (yield + local buckling) AND telescopes
-into the tube inside it (bore >= outer OD + clearance). Tip-to-root greedy with the
-required bore propagating inward; re-solved to fixed point because drag grows with D.
+[--clearance M] [--length-step M] [--tip-extension AUTO|M]`. Sizes each stock tube
+position to the lightest catalog tube that survives the target wind (yield + local
+buckling) AND telescopes into the tube inside it (bore >= outer OD + clearance).
+Tip-to-root greedy with the required bore propagating inward; re-solved to fixed
+point because drag grows with D.
 
 Key facts:
 - The telescoping bore constraint, NOT strength, fixes the diameter chain (the 20m RE
@@ -100,7 +101,22 @@ Key facts:
 - `data/tube_catalog.csv` = 11 stock sizes (12..60mm) extracted from the three .stm
   files; `parse_catalog_lines`/`read_catalog` read it, `size_from_extents` sizes,
   `element_mass` gives total mass. `--length-step` snaps per-side lengths to a
-  manufacturing increment (5mm default recommendation).
+  manufacturing increment (5mm default recommendation). `snap_lengths` rounds every
+  tube except the tip; the tip keeps its exact original end so the total element
+  length is preserved (the tip absorbs the rounding residual).
+- `--tip-extension` (with `--optimize`, `--es-sweep` and `--layout-search`, default
+  `auto`): extends the tip tube to compensate the resonance up-shift when the
+  optimized chain is thinner than stock. `auto` computes the per-side extension as
+  `coeff * (1 - d_opt/d_ref) * half_length` where d_opt/d_ref are the length-weighted
+  mean outer diameters of the optimized and stock element (`effective_diameter`,
+  NOT arithmetic mean), coeff = `TIP_EXTENSION_COEFF` = 0.1, and iterates to a fixed
+  point because extending the tip changes the drag envelope and the envelope changes
+  the diameters the extension is derived from. A numeric value sets a fixed per-side
+  extension; `0` disables. `size_with_tip_extension` wraps `size_from_extents`;
+  `extend_tip` grows only the last (outermost) tube. The stock 20m RE is
+  near-optimal so auto applies ~0 mm/side there, but the layout-search thin chain
+  `[35x2;30x2;25x2;20x1.5;12x1]` gets ~76 mm/side. This is a rough
+  resonance-compensation model pending NEC v5.0 verification, NOT a physics result.
 - Infeasible targets (bore chain > largest catalog tube) raise ValueError.
 - The fixed-point drag coupling is start-dependent: the map is monotone on the
   feasible telescoping lattice but NOT on the full product lattice, so a single
@@ -121,16 +137,18 @@ Key facts:
   Sweep rows that fail sizing print `infeasible` (ES too close to centre leaves
   the outer cantilever unsupported; ES near the tip over-peaks the pin).
 - `--layout-search` (with `--optimize`) brute-forces the layout design space:
-  tube count N (default 3..8), overlap, exposed-length taper (geometric ratio)
+  tube count N (default 3..10), overlap, exposed-length taper (geometric ratio)
   and an optional sleeve collar, sizing each layout from the catalog at the
   design wind (`geom_exposed`/`layout_from_exposed` build per-side extents).
   The grid is embarrassingly parallel and is spread over `--layout-workers`
   processes (default `os.cpu_count()`; `search_layouts` in optimize.py). It
   prints the lightest catalog-sized element per survival bucket, marking the
-  lightest that meets the design wind. Known result for the 20m RE at 36.6 m/s:
-  3965.9 g with `[40;35;30;25;20;12]` (40x2.0 = 150 mm root collar, 16 mm
-  skipped, 12 mm tip) vs stock 4870.6 g; the telescoping bore chain, not
-  strength, is what fixes the root.
+  lightest that meets the design wind. Tip extension (`auto` by default in the
+  search) is applied per layout, so thin chains carry a positive per-side
+  extension and heavier survival. Known result for the 20m RE at 36.6 m/s:
+  3965.9 g with `[40x2;35x2;30x2;25x2;20x1.5;12x1]` (40x2.0 = 150 mm root
+  collar, 16 mm skipped, 12x1 mm tip) vs stock 4870.6 g; the telescoping bore
+  chain, not strength, is what fixes the root.
 - Performance: the survival-wind-speed bisection factorizes each support-set
   stiffness once (`FactorizedSolver` in solver.py, LU) and only rebuilds the
   load vector + back-substitutes per step — ~4x faster than rebuilding the

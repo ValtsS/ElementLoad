@@ -4,7 +4,9 @@ import pytest
 
 from elementload.optimize import (
     _size_telescoped,
+    effective_diameter,
     element_mass,
+    extend_tip,
     fits_inside,
     geom_exposed,
     layout_from_exposed,
@@ -13,7 +15,9 @@ from elementload.optimize import (
     read_catalog,
     search_layouts,
     size_from_extents,
+    size_with_tip_extension,
     snap_lengths,
+    tip_extension_for,
     tube_mass,
 )
 from elementload.report import build_model_from_geometry, survival_wind_speed
@@ -196,7 +200,8 @@ def test_search_layouts_finds_lighter_than_stock():
     assert min(r["mass"] for r in results) < element_mass(tubes)
     # the known lightest-at-design layout
     lightest = min(results, key=lambda r: r["mass"])
-    assert [int(d) for d in lightest["chain"].split(";")] == [40, 35, 30, 25, 20, 12]
+    assert [d for d in lightest["chain"].split(";")] == \
+        ["40x2", "35x2", "30x2", "25x2", "20x1.5", "12x1"]
 
 
 def test_search_layouts_infeasible_layouts_skipped():
@@ -227,24 +232,24 @@ def test_layout_search_root_bounds_survival():
     assert results
     best = max(results, key=lambda r: r["survival"])
     assert best["survival"] < 31.0
-    assert int(best["chain"].split(";")[0]) == 30
+    assert int(best["chain"].split(";")[0].split("x")[0]) == 30
 
 
 def test_pareto_frontier_and_best_per_root():
     from elementload.cli import _best_per_root, _pareto_frontier
     results = [
-        {"survival": 30.0, "mass": 3.0, "chain": "30;25;20;12"},
-        {"survival": 34.0, "mass": 3.5, "chain": "35;30;25;20;12"},
+        {"survival": 30.0, "mass": 3.0, "chain": "30x2;25x2;20x1.5;12x1"},
+        {"survival": 34.0, "mass": 3.5, "chain": "35x2;30x2;25x2;20x1.5;12x1"},
         # dominated: heavier than the 34 m/s design but no faster
-        {"survival": 34.0, "mass": 4.0, "chain": "35;30;25;16"},
-        {"survival": 36.8, "mass": 3.97, "chain": "40;35;30;25;20;12"},
+        {"survival": 34.0, "mass": 4.0, "chain": "35x2;30x2;25x2;16x1.5"},
+        {"survival": 36.8, "mass": 3.97, "chain": "40x2;35x2;30x2;25x2;20x1.5;12x1"},
     ]
     front = _pareto_frontier(results)
     assert len(front) == 3
     assert all(r["survival"] <= 34.0 for r in front if r["mass"] < 3.97)
     best = _best_per_root(results, 35.0)
     assert best[30.0]["survival"] == 30.0
-    assert best[40.0]["chain"].endswith("12")
+    assert best[40.0]["chain"].endswith("12x1")
 
 
 def test_pareto_frontier_collapses_bisection_noise():
@@ -252,14 +257,45 @@ def test_pareto_frontier_collapses_bisection_noise():
     # collapse to the lighter one
     from elementload.cli import _pareto_frontier
     results = [
-        {"survival": 35.756546703040826, "mass": 3.7529315, "chain": "35;30;25;20;12"},
-        {"survival": 35.75654670316001, "mass": 3.8723198, "chain": "35;30;25;20;12"},
-        {"survival": 36.8405, "mass": 3.9659, "chain": "40;35;30;25;20;12"},
+        {"survival": 35.756546703040826, "mass": 3.7529315, "chain": "35x2;30x2;25x2;20x1.5;12x1"},
+        {"survival": 35.75654670316001, "mass": 3.8723198, "chain": "35x2;30x2;25x2;20x1.5;12x1"},
+        {"survival": 36.8405, "mass": 3.9659, "chain": "40x2;35x2;30x2;25x2;20x1.5;12x1"},
     ]
     front = _pareto_frontier(results)
     assert len(front) == 2
-    assert [r["chain"] for r in front] == ["35;30;25;20;12", "40;35;30;25;20;12"]
+    assert [r["chain"] for r in front] == \
+        ["35x2;30x2;25x2;20x1.5;12x1", "40x2;35x2;30x2;25x2;20x1.5;12x1"]
     assert front[0]["mass"] == pytest.approx(3.7529315)
+
+
+def test_search_layouts_tip_extension_auto_applies_to_thin_chain():
+    stm = read_stm(_path("a1.stm"))
+    el = [e for e in stm.elements if e.name == "20m RE"][0]
+    tubes = element_tube_extents(el)
+    results = search_layouts(
+        tubes, "rigid", [("center", "fixed")], 35.0,
+        el.material_key, None, catalog=CATALOG,
+        n_range=(5, 5), overlaps=(0.10,), ratios=(1.0,),
+        sleeves=(None,), target_winds=[35.0], workers=1, tip_extension="auto")
+    assert results
+    # every feasible layout carries its applied per-side tip extension
+    assert all("tip_ext" in r for r in results)
+    # the thin optimized chain gets a positive, reasonable extension
+    assert all(r["tip_ext"] > 0.0 for r in results)
+    assert all(0.01 < r["tip_ext"] < 0.20 for r in results)
+
+
+def test_search_layouts_tip_extension_off_leaves_zero():
+    stm = read_stm(_path("a1.stm"))
+    el = [e for e in stm.elements if e.name == "20m RE"][0]
+    tubes = element_tube_extents(el)
+    results = search_layouts(
+        tubes, "rigid", [("center", "fixed")], 35.0,
+        el.material_key, None, catalog=CATALOG,
+        n_range=(5, 5), overlaps=(0.10,), ratios=(1.0,),
+        sleeves=(None,), target_winds=[35.0], workers=1, tip_extension=None)
+    assert results
+    assert all(r["tip_ext"] == 0.0 for r in results)
 
 
 def test_snap_lengths_rounds_to_step():
@@ -271,11 +307,110 @@ def test_snap_lengths_rounds_to_step():
     for t in snapped:
         length = t.inner_end - t.inner_start
         assert abs(round(length / 0.005) - length / 0.005) < 1e-9
-    # inner joints stay fixed; the tip absorbs the rounding
+    # inner joints stay fixed; the tip keeps its exact end (span preserved)
     assert snapped[0].inner_start == 0.0
     assert snapped[0].inner_end == 0.55
     assert snapped[1].inner_start == 0.40
-    assert snapped[2].inner_end >= 1.60
+    assert snapped[1].inner_end == 1.15
+    assert snapped[2].inner_end == 1.60
+
+
+def test_snap_lengths_preserves_total_span_when_tip_not_multiple():
+    # the tip is not a multiple of the step: it must keep its exact end so the
+    # total element length is unchanged and the rounding is absorbed there
+    from elementload.assembly import TubeExtent
+    tubes = [TubeExtent(0.045, 0.002, 0.0, 0.553),
+             TubeExtent(0.040, 0.002, 0.40, 1.153),
+             TubeExtent(0.012, 0.001, 0.45, 1.613)]
+    snapped = snap_lengths(tubes, 0.005)
+    assert snapped[0].inner_end == pytest.approx(0.555)  # 0.553 -> 0.555
+    assert snapped[1].inner_end == pytest.approx(1.155)  # 0.753 -> 0.755
+    assert snapped[2].inner_end == pytest.approx(1.613)  # tip untouched
+    assert snapped[-1].inner_end == tubes[-1].inner_end
+    # inner (non-tip) tubes are snapped to the increment
+    for t in snapped[:-1]:
+        length = t.inner_end - t.inner_start
+        assert abs(round(length / 0.005) - length / 0.005) < 1e-9
+
+
+def test_effective_diameter_length_weighted():
+    from elementload.assembly import TubeExtent
+    tubes = [TubeExtent(0.040, 0.002, 0.0, 1.0),
+             TubeExtent(0.020, 0.0015, 0.0, 3.0)]
+    # (40*1.0 + 20*3.0) / 4.0 = 25 mm, NOT the arithmetic mean (30 mm)
+    assert effective_diameter(tubes) == pytest.approx(0.025)
+    assert effective_diameter([]) == 0.0
+
+
+def test_tip_extension_for_scales_with_thinning():
+    from elementload.assembly import TubeExtent
+    ref = [TubeExtent(0.040, 0.002, 0.0, 5.0)]
+    thin = [TubeExtent(0.030, 0.002, 0.0, 5.0)]
+    ext = tip_extension_for(thin, ref)
+    assert ext > 0.0
+    # coeff * (1 - d_opt/d_ref) * half_length = 0.1 * (1 - 30/40) * 5.0
+    assert ext == pytest.approx(0.1 * (1.0 - 0.030 / 0.040) * 5.0)
+    # not thinner -> no extension
+    assert tip_extension_for(ref, thin) == 0.0
+    assert tip_extension_for(ref, ref) == 0.0
+
+
+def test_extend_tip_only_extends_last_tube():
+    from elementload.assembly import TubeExtent
+    tubes = [TubeExtent(0.045, 0.002, 0.0, 0.55),
+             TubeExtent(0.012, 0.001, 0.45, 1.60)]
+    out = extend_tip(tubes, 0.05)
+    assert out[0].inner_end == 0.55
+    assert out[1].inner_end == pytest.approx(1.65)
+    assert len(out) == 2
+    assert extend_tip(tubes, 0.0) == tubes
+    assert extend_tip(tubes, -0.1) == tubes
+
+
+def test_size_with_tip_extension_fixed_applies_extension():
+    stm = read_stm(_path("a1.stm"))
+    el = [e for e in stm.elements if e.name == "20m RE"][0]
+    tubes = element_tube_extents(el)
+    opt, ext = size_with_tip_extension(
+        tubes, tubes, "rigid", [("center", "fixed")], stm.wind_speed,
+        el.material_key, el.yield_stress, catalog=CATALOG, tip_extension=0.05)
+    assert ext == pytest.approx(0.05)
+    assert opt[-1].inner_end == pytest.approx(tubes[-1].inner_end + 0.05)
+    assert opt[0].inner_end == pytest.approx(tubes[0].inner_end)
+    model = build_model_from_geometry(opt, "rigid", [("center", "fixed")],
+                                      stm.wind_speed, el.material_key,
+                                      yield_stress=el.yield_stress)
+    assert survival_wind_speed(model, "yield") >= stm.wind_speed
+
+
+def test_size_with_tip_extension_auto_extends_thinner_element():
+    # a catalog-thinned layout (thin 5-tube chain) is lighter than stock but
+    # electrically shorter (thinner mean diameter -> resonance up-shift), so the
+    # auto rule computes a positive per-side tip extension to compensate
+    stm = read_stm(_path("a1.stm"))
+    el = [e for e in stm.elements if e.name == "20m RE"][0]
+    tubes = element_tube_extents(el)
+    half = max(t.inner_end for t in tubes)
+    from elementload.optimize import geom_exposed, layout_from_exposed
+    thin = layout_from_exposed(geom_exposed(5, 1.0, half), 0.10, half)
+    opt, ext = size_with_tip_extension(
+        thin, tubes, "rigid", [("center", "fixed")], 35.0,
+        el.material_key, el.yield_stress, catalog=CATALOG, tip_extension="auto")
+    assert ext > 0.0
+    assert opt[-1].inner_end == pytest.approx(half + ext)
+    # stock chain is the reference: thin vs stock, so extension is proportional
+    from elementload.optimize import effective_diameter
+    assert effective_diameter(opt) < effective_diameter(tubes)
+    model = build_model_from_geometry(opt, "rigid", [("center", "fixed")],
+                                      35.0, el.material_key,
+                                      yield_stress=el.yield_stress)
+    assert survival_wind_speed(model, "yield") >= 35.0
+    # no-extension sizing stays a fixed point of the auto rule (extension 0)
+    opt0, ext0 = size_with_tip_extension(
+        tubes, tubes, "rigid", [("center", "fixed")], 35.0,
+        el.material_key, el.yield_stress, catalog=CATALOG, tip_extension=None)
+    assert ext0 == 0.0
+    assert opt0[-1].inner_end == pytest.approx(tubes[-1].inner_end)
 
 
 def test_size_from_extents_with_length_step_survives():

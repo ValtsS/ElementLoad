@@ -1,0 +1,495 @@
+YagiMechanical file: data/mechanical2.stm
+Antenna: Antenna, height H = 10.06 m, design wind WS = 40.5 m/s
+Boom (B0): 50.0 x 2.00 mm, length 6000 mm - identified, skipped (per-element analysis)
+Elements: 15m RE, 15m DE, 15m D1, 10m RE, 10m DE, 10m D1, 10m D2
+
+15m RE (20.28 MHz, mount 50 mm)
+===============================
+
+Tubes (D x t, length):
+  1: 25.0 x 2.00 mm, 2000 mm
+  2: 20.0 x 1.50 mm, 2900 mm
+  3: 16.0 x 1.50 mm, 260 mm
+  4: 12.0 x 1.00 mm, 2852 mm
+Overlap per joint: 100, 100, 130 mm, joint model: rigid
+Supports: center:fixed
+Material: al6060-t6
+Pins: 2 x 4.0 mm at each joint
+
+Analysis at wind speed 40.5 m/s:
+  max moment:       138.8 N.m at x = -0.00 m
+  max stress:       180.1 MPa at x = -0.00 m
+  max deflection:   1025.8 mm
+  self-weight sag:     71.2 mm
+
+Survival wind speed per failure mode:
+       yield:    38.0 m/s
+    buckling:   188.5 m/s
+   pin_shear:   464.7 m/s
+  LIMITING MODE: yield at 38.0 m/s
+
+Dynamics (damping zeta = 0.010):
+  mode 1: f =   2.52 Hz, lock-in at V_crit =    0.3 m/s
+  mode 2: f =   2.52 Hz, lock-in at V_crit =    0.3 m/s
+  mode 3: f =   8.11 Hz, lock-in at V_crit =    1.1 m/s
+  effective mass 0.242 kg/m, Scruton Sc = 39.7
+
+Along-wind dynamic factor (EN 1991-1-4 6.3.1/Annex B, reference height 10 m, z0 = 0.05 m):
+  c_s*c_d = 1.015 (c_s = 0.866, c_d = 1.172, B^2 = 0.765, R^2 = 0.049, k_p = 3.98, I_v = 0.189)
+  damping decrements: delta_s = 0.063, delta_a = 2.551, delta = 2.613
+
+Fatigue (Miner's rule, R = -1, S-N al6060-t6):
+      VIV mode 1 lock-in: range =    0.1 MPa @ 2.52 Hz -> no fatigue damage (below endurance)
+          gust buffeting: range =    6.0 MPa @ 2.52 Hz -> no fatigue damage (below endurance)
+  combined life: unlimited (all sources below endurance)
+
+Vortex shedding crosswind response (EN 1991-1-4 Annex E, approach 1):
+  mode 1: y_max =    0.32 mm, bending stress range =     0.1 MPa, lock-in window    0.3..   0.4 m/s
+  mode 2: y_max =    0.32 mm, bending stress range =     0.1 MPa, lock-in window    0.3..   0.4 m/s
+  mode 3: y_max =    0.32 mm, bending stress range =     0.5 MPa, lock-in window    0.9..   1.4 m/s
+
+Deflection |w| along element (mm):
+  #                                      #
+                                          
+                                          
+                                          
+                                          
+                                          
+         ##                      ##       
+                                          
+                                          
+                ##        ##              
+                      #                   
+
+Bending moment |M| along element (N.m):
+                      #                   
+                    #  #                  
+                                          
+                   #    #                 
+                  #      #                
+                ##        ##              
+               #            #             
+             #                #           
+           #                    #         
+       # ##                      ## #     
+  # ##                                ## #
+
+15m DE (21.49 MHz, mount 2872 mm)
+=================================
+
+Tubes (D x t, length):
+  1: 25.0 x 2.00 mm, 2000 mm
+  2: 20.0 x 1.50 mm, 2900 mm
+  3: 12.0 x 1.00 mm, 2428 mm
+Overlap per joint: 100, 100 mm, joint model: rigid
+Supports: center:fixed
+Material: al6060-t6
+Pins: 2 x 4.0 mm at each joint
+
+Analysis at wind speed 40.5 m/s:
+  max moment:       126.7 N.m at x = -0.00 m
+  max stress:       164.5 MPa at x = -0.00 m
+  max deflection:    779.8 mm
+  self-weight sag:     55.5 mm
+
+Survival wind speed per failure mode:
+       yield:    39.9 m/s
+    buckling:   205.9 m/s
+   pin_shear:   491.6 m/s
+  LIMITING MODE: yield at 39.9 m/s
+
+Dynamics (damping zeta = 0.010):
+  mode 1: f =   2.90 Hz, lock-in at V_crit =    0.4 m/s
+  mode 2: f =   2.90 Hz, lock-in at V_crit =    0.4 m/s
+  mode 3: f =   9.84 Hz, lock-in at V_crit =    1.4 m/s
+  effective mass 0.244 kg/m, Scruton Sc = 40.0
+
+Along-wind dynamic factor (EN 1991-1-4 6.3.1/Annex B, reference height 10 m, z0 = 0.05 m):
+  c_s*c_d = 1.023 (c_s = 0.870, c_d = 1.176, B^2 = 0.771, R^2 = 0.051, k_p = 4.02, I_v = 0.189)
+  damping decrements: delta_s = 0.063, delta_a = 2.133, delta = 2.196
+
+Fatigue (Miner's rule, R = -1, S-N al6060-t6):
+      VIV mode 1 lock-in: range =    0.1 MPa @ 2.90 Hz -> no fatigue damage (below endurance)
+          gust buffeting: range =    5.6 MPa @ 2.90 Hz -> no fatigue damage (below endurance)
+  combined life: unlimited (all sources below endurance)
+
+Vortex shedding crosswind response (EN 1991-1-4 Annex E, approach 1):
+  mode 1: y_max =    0.33 mm, bending stress range =     0.1 MPa, lock-in window    0.3..   0.5 m/s
+  mode 2: y_max =    0.33 mm, bending stress range =     0.1 MPa, lock-in window    0.3..   0.5 m/s
+  mode 3: y_max =    0.35 mm, bending stress range =     0.6 MPa, lock-in window    1.1..   1.6 m/s
+
+Deflection |w| along element (mm):
+  #                                      #
+                                          
+                                          
+                                          
+                                          
+        ##                        ##      
+                                          
+                                          
+                                          
+                #          #              
+                      #                   
+
+Bending moment |M| along element (N.m):
+                      #                   
+                    #  #                  
+                                          
+                   #    #                 
+                  #      #                
+                #          #              
+                #          #              
+              #              #            
+            #                  #          
+        ## #                    # ##      
+  # ## #                            # ## #
+
+15m D1 (23.85 MHz, mount 4638 mm)
+=================================
+
+Tubes (D x t, length):
+  1: 25.0 x 2.00 mm, 1600 mm
+  2: 20.0 x 1.50 mm, 2200 mm
+  3: 12.0 x 1.00 mm, 2862 mm
+Overlap per joint: 100, 100 mm, joint model: rigid
+Supports: center:fixed
+Material: al6060-t6
+Pins: 2 x 4.0 mm at each joint
+
+Analysis at wind speed 40.5 m/s:
+  max moment:        95.8 N.m at x = -0.00 m
+  max stress:       155.3 MPa at x = -1.80 m
+  max deflection:    604.4 mm
+  self-weight sag:     39.8 mm
+
+Survival wind speed per failure mode:
+       yield:    41.2 m/s
+    buckling:   205.4 m/s
+   pin_shear:   500.0 m/s
+  LIMITING MODE: yield at 41.2 m/s
+
+Dynamics (damping zeta = 0.010):
+  mode 1: f =   3.40 Hz, lock-in at V_crit =    0.5 m/s
+  mode 2: f =   3.40 Hz, lock-in at V_crit =    0.5 m/s
+  mode 3: f =  10.50 Hz, lock-in at V_crit =    1.5 m/s
+  effective mass 0.225 kg/m, Scruton Sc = 36.9
+
+Along-wind dynamic factor (EN 1991-1-4 6.3.1/Annex B, reference height 10 m, z0 = 0.05 m):
+  c_s*c_d = 1.030 (c_s = 0.876, c_d = 1.176, B^2 = 0.782, R^2 = 0.043, k_p = 4.06, I_v = 0.189)
+  damping decrements: delta_s = 0.063, delta_a = 2.182, delta = 2.245
+
+Fatigue (Miner's rule, R = -1, S-N al6060-t6):
+      VIV mode 1 lock-in: range =    0.2 MPa @ 3.40 Hz -> no fatigue damage (below endurance)
+          gust buffeting: range =    4.6 MPa @ 3.40 Hz -> no fatigue damage (below endurance)
+  combined life: unlimited (all sources below endurance)
+
+Vortex shedding crosswind response (EN 1991-1-4 Annex E, approach 1):
+  mode 1: y_max =    0.44 mm, bending stress range =     0.2 MPa, lock-in window    0.4..   0.6 m/s
+  mode 2: y_max =    0.44 mm, bending stress range =     0.2 MPa, lock-in window    0.4..   0.6 m/s
+  mode 3: y_max =    0.37 mm, bending stress range =     0.7 MPa, lock-in window    1.2..   1.8 m/s
+
+Deflection |w| along element (mm):
+  #                                      #
+                                          
+                                          
+                                          
+                                          
+                                          
+                                          
+          ##                    ##        
+                                          
+                 #        #               
+                 #    #   #               
+
+Bending moment |M| along element (N.m):
+                      #                   
+                    #  #                  
+                   #    #                 
+                                          
+                  #      #                
+                 #        #               
+               #            #             
+              #              #            
+           ##                  ##         
+        # #                      # #      
+  # # #                              # # #
+
+10m RE (26.91 MHz, mount 674 mm)
+================================
+
+Tubes (D x t, length):
+  1: 20.0 x 1.50 mm, 1400 mm
+  2: 16.0 x 1.50 mm, 1400 mm
+  3: 12.0 x 1.00 mm, 3078 mm
+Overlap per joint: 100, 100 mm, joint model: rigid
+Supports: center:fixed
+Material: al6060-t6
+Pins: 2 x 4.0 mm at each joint
+
+Analysis at wind speed 40.5 m/s:
+  max moment:        63.9 N.m at x = +0.00 m
+  max stress:       181.5 MPa at x = -1.30 m
+  max deflection:    727.0 mm
+  self-weight sag:     45.3 mm
+
+Survival wind speed per failure mode:
+       yield:    37.9 m/s
+    buckling:   187.2 m/s
+   pin_shear:   500.0 m/s
+  LIMITING MODE: yield at 37.9 m/s
+
+Dynamics (damping zeta = 0.010):
+  mode 1: f =   3.05 Hz, lock-in at V_crit =    0.3 m/s
+  mode 2: f =   3.05 Hz, lock-in at V_crit =    0.3 m/s
+  mode 3: f =  11.72 Hz, lock-in at V_crit =    1.3 m/s
+  effective mass 0.160 kg/m, Scruton Sc = 41.0
+
+Along-wind dynamic factor (EN 1991-1-4 6.3.1/Annex B, reference height 10 m, z0 = 0.05 m):
+  c_s*c_d = 1.037 (c_s = 0.884, c_d = 1.173, B^2 = 0.796, R^2 = 0.058, k_p = 4.03, I_v = 0.189)
+  damping decrements: delta_s = 0.063, delta_a = 2.053, delta = 2.116
+
+Fatigue (Miner's rule, R = -1, S-N al6060-t6):
+      VIV mode 1 lock-in: range =    0.1 MPa @ 3.05 Hz -> no fatigue damage (below endurance)
+          gust buffeting: range =    7.2 MPa @ 3.05 Hz -> no fatigue damage (below endurance)
+  combined life: unlimited (all sources below endurance)
+
+Vortex shedding crosswind response (EN 1991-1-4 Annex E, approach 1):
+  mode 1: y_max =    0.22 mm, bending stress range =     0.1 MPa, lock-in window    0.3..   0.4 m/s
+  mode 2: y_max =    0.22 mm, bending stress range =     0.1 MPa, lock-in window    0.3..   0.4 m/s
+  mode 3: y_max =    0.19 mm, bending stress range =     0.4 MPa, lock-in window    1.0..   1.6 m/s
+
+Deflection |w| along element (mm):
+  #                                      #
+                                          
+                                          
+                                          
+                                          
+                                          
+                                          
+                                          
+            ##                ##          
+                 #        #               
+                      #                   
+
+Bending moment |M| along element (N.m):
+                      #                   
+                    #  #                  
+                   #    #                 
+                  #      #                
+                 #        #               
+                ##        ##              
+               #            #             
+            ###              ###          
+            #                  #          
+       #  #                      #  #     
+  #  #                                #  #
+
+10m DE (28.15 MHz, mount 2562 mm)
+=================================
+
+Tubes (D x t, length):
+  1: 20.0 x 1.50 mm, 1400 mm
+  2: 16.0 x 1.50 mm, 1400 mm
+  3: 12.0 x 1.00 mm, 2838 mm
+Overlap per joint: 100, 100 mm, joint model: rigid
+Supports: center:fixed
+Material: al6060-t6
+Pins: 2 x 4.0 mm at each joint
+
+Analysis at wind speed 40.5 m/s:
+  max moment:        59.0 N.m at x = +0.00 m
+  max stress:       157.0 MPa at x = +0.00 m
+  max deflection:    582.7 mm
+  self-weight sag:     36.6 mm
+
+Survival wind speed per failure mode:
+       yield:    40.9 m/s
+    buckling:   195.9 m/s
+   pin_shear:   500.0 m/s
+  LIMITING MODE: yield at 40.9 m/s
+
+Dynamics (damping zeta = 0.010):
+  mode 1: f =   3.40 Hz, lock-in at V_crit =    0.4 m/s
+  mode 2: f =   3.40 Hz, lock-in at V_crit =    0.4 m/s
+  mode 3: f =  12.73 Hz, lock-in at V_crit =    1.4 m/s
+  effective mass 0.163 kg/m, Scruton Sc = 41.7
+
+Along-wind dynamic factor (EN 1991-1-4 6.3.1/Annex B, reference height 10 m, z0 = 0.05 m):
+  c_s*c_d = 1.042 (c_s = 0.887, c_d = 1.176, B^2 = 0.801, R^2 = 0.058, k_p = 4.06, I_v = 0.189)
+  damping decrements: delta_s = 0.063, delta_a = 1.824, delta = 1.887
+
+Fatigue (Miner's rule, R = -1, S-N al6060-t6):
+      VIV mode 1 lock-in: range =    0.1 MPa @ 3.40 Hz -> no fatigue damage (below endurance)
+          gust buffeting: range =    6.2 MPa @ 3.40 Hz -> no fatigue damage (below endurance)
+  combined life: unlimited (all sources below endurance)
+
+Vortex shedding crosswind response (EN 1991-1-4 Annex E, approach 1):
+  mode 1: y_max =    0.22 mm, bending stress range =     0.1 MPa, lock-in window    0.3..   0.5 m/s
+  mode 2: y_max =    0.22 mm, bending stress range =     0.1 MPa, lock-in window    0.3..   0.5 m/s
+  mode 3: y_max =    0.19 mm, bending stress range =     0.4 MPa, lock-in window    1.1..   1.7 m/s
+
+Deflection |w| along element (mm):
+  #                                      #
+                                          
+                                          
+                                          
+                                          
+                                          
+                                          
+            #                  #          
+             #                #           
+                ##        ##              
+                      #                   
+
+Bending moment |M| along element (N.m):
+                      #                   
+                    #  #                  
+                   #    #                 
+                  #      #                
+                 #        #               
+                ##        ##              
+              ##            ##            
+            ##                ##          
+            #                  #          
+       # #                        # #     
+  # #                                  # #
+
+10m D1 (28.58 MHz, mount 4273 mm)
+=================================
+
+Tubes (D x t, length):
+  1: 20.0 x 1.50 mm, 1400 mm
+  2: 16.0 x 1.50 mm, 1200 mm
+  3: 12.0 x 1.00 mm, 2958 mm
+Overlap per joint: 100, 100 mm, joint model: rigid
+Supports: center:fixed
+Material: al6060-t6
+Pins: 2 x 4.0 mm at each joint
+
+Analysis at wind speed 40.5 m/s:
+  max moment:        56.6 N.m at x = -0.00 m
+  max stress:       166.7 MPa at x = +1.20 m
+  max deflection:    570.6 mm
+  self-weight sag:     35.5 mm
+
+Survival wind speed per failure mode:
+       yield:    39.6 m/s
+    buckling:   198.3 m/s
+   pin_shear:   500.0 m/s
+  LIMITING MODE: yield at 39.6 m/s
+
+Dynamics (damping zeta = 0.010):
+  mode 1: f =   3.44 Hz, lock-in at V_crit =    0.4 m/s
+  mode 2: f =   3.44 Hz, lock-in at V_crit =    0.4 m/s
+  mode 3: f =  13.21 Hz, lock-in at V_crit =    1.5 m/s
+  effective mass 0.160 kg/m, Scruton Sc = 41.1
+
+Along-wind dynamic factor (EN 1991-1-4 6.3.1/Annex B, reference height 10 m, z0 = 0.05 m):
+  c_s*c_d = 1.043 (c_s = 0.888, c_d = 1.176, B^2 = 0.802, R^2 = 0.058, k_p = 4.06, I_v = 0.189)
+  damping decrements: delta_s = 0.063, delta_a = 1.822, delta = 1.885
+
+Fatigue (Miner's rule, R = -1, S-N al6060-t6):
+      VIV mode 1 lock-in: range =    0.1 MPa @ 3.44 Hz -> no fatigue damage (below endurance)
+          gust buffeting: range =    6.6 MPa @ 3.44 Hz -> no fatigue damage (below endurance)
+  combined life: unlimited (all sources below endurance)
+
+Vortex shedding crosswind response (EN 1991-1-4 Annex E, approach 1):
+  mode 1: y_max =    0.23 mm, bending stress range =     0.1 MPa, lock-in window    0.3..   0.5 m/s
+  mode 2: y_max =    0.23 mm, bending stress range =     0.1 MPa, lock-in window    0.3..   0.5 m/s
+  mode 3: y_max =    0.20 mm, bending stress range =     0.5 MPa, lock-in window    1.2..   1.8 m/s
+
+Deflection |w| along element (mm):
+  #                                      #
+                                          
+                                          
+                                          
+                                          
+                                          
+                                          
+                                          
+            ##                ##          
+                ##        ##              
+                      #                   
+
+Bending moment |M| along element (N.m):
+                      #                   
+                    #  #                  
+                   #    #                 
+                                          
+                 ##      ##               
+                ##        ##              
+               #            #             
+            ###              ###          
+                                          
+       #  #                      #  #     
+  #  #                                #  #
+
+10m D2 (30.06 MHz, mount 5950 mm)
+=================================
+
+Tubes (D x t, length):
+  1: 20.0 x 1.50 mm, 1400 mm
+  2: 16.0 x 1.50 mm, 1200 mm
+  3: 12.0 x 1.00 mm, 2706 mm
+Overlap per joint: 100, 100 mm, joint model: rigid
+Supports: center:fixed
+Material: al6060-t6
+Pins: 2 x 4.0 mm at each joint
+
+Analysis at wind speed 40.5 m/s:
+  max moment:        51.8 N.m at x = -0.00 m
+  max stress:       137.9 MPa at x = -0.00 m
+  max deflection:    444.9 mm
+  self-weight sag:     27.9 mm
+
+Survival wind speed per failure mode:
+       yield:    43.9 m/s
+    buckling:   210.8 m/s
+   pin_shear:   500.0 m/s
+  LIMITING MODE: yield at 43.9 m/s
+
+Dynamics (damping zeta = 0.010):
+  mode 1: f =   3.90 Hz, lock-in at V_crit =    0.4 m/s
+  mode 2: f =   3.90 Hz, lock-in at V_crit =    0.4 m/s
+  mode 3: f =  14.44 Hz, lock-in at V_crit =    1.6 m/s
+  effective mass 0.164 kg/m, Scruton Sc = 42.0
+
+Along-wind dynamic factor (EN 1991-1-4 6.3.1/Annex B, reference height 10 m, z0 = 0.05 m):
+  c_s*c_d = 1.050 (c_s = 0.890, c_d = 1.179, B^2 = 0.807, R^2 = 0.058, k_p = 4.09, I_v = 0.189)
+  damping decrements: delta_s = 0.063, delta_a = 1.596, delta = 1.659
+
+Fatigue (Miner's rule, R = -1, S-N al6060-t6):
+      VIV mode 1 lock-in: range =    0.1 MPa @ 3.90 Hz -> no fatigue damage (below endurance)
+          gust buffeting: range =    5.4 MPa @ 3.90 Hz -> no fatigue damage (below endurance)
+  combined life: unlimited (all sources below endurance)
+
+Vortex shedding crosswind response (EN 1991-1-4 Annex E, approach 1):
+  mode 1: y_max =    0.24 mm, bending stress range =     0.1 MPa, lock-in window    0.3..   0.5 m/s
+  mode 2: y_max =    0.24 mm, bending stress range =     0.1 MPa, lock-in window    0.3..   0.5 m/s
+  mode 3: y_max =    0.20 mm, bending stress range =     0.5 MPa, lock-in window    1.3..   1.9 m/s
+
+Deflection |w| along element (mm):
+  #                                      #
+                                          
+                                          
+                                          
+                                          
+                                          
+                                          
+                                          
+            ##                ##          
+                ##        ##              
+                      #                   
+
+Bending moment |M| along element (N.m):
+                      #                   
+                    #  #                  
+                                          
+                   #    #                 
+                  #      #                
+                ##        ##              
+              ##            ##            
+            ###              ###          
+            #                  #          
+       # #                        # #     
+  # #                                  # #

@@ -125,6 +125,40 @@ a shared color scale, so the two support assumptions can be compared visually.
 `<element>_<quantity>.png`). Requires matplotlib (an optional dependency,
 declared in pyproject.toml).
 
+## Element optimization
+
+`--optimize` (with `--stm` and exactly one `--element`) re-sizes the element's
+tubes from a tube stock catalog so that it just survives a target wind speed,
+and prints a stock-vs-optimized comparison (mass, saving, tube chain diff,
+yield survival):
+
+```
+elementload.cmd --stm data/a1.stm --element "20m RE" --optimize --wind 36.6
+```
+
+The optimizer is a deterministic envelope sizer: it computes the bending
+moment each stock tube position must carry at the target wind, then picks the
+lightest catalog tube per position that (a) survives that moment (yield and
+local buckling) and (b) can telescope — each tube's bore must host the tube
+outside it plus a clearance. Because drag grows with diameter, the envelope is
+re-solved to a fixed point.
+
+The telescoping fit is what actually constrains the chain: the root diameter is
+forced by the tip (you cannot skip sizes), not by strength alone. For the 20 m
+RE this means the 45 mm root is real — the only improvement over stock is a
+20x2.0 -> 20x1.5 swap (2.4% mass), because stock's 20x2.0 bore (16 mm) is a
+zero-clearance fit that cannot telescope over the 16 mm tube.
+
+Options:
+
+| Option | Description |
+|--------|-------------|
+| `--catalog FILE` | tube stock catalog CSV (`D_mm, t_mm` rows; default `data/tube_catalog.csv`) |
+| `--clearance M` | telescoping clearance between tubes (default 0.001 = 1 mm) |
+| `--length-step M` | snap per-side tube lengths to this increment, e.g. `0.005` for 5 mm (default 0 = off) |
+
+`--wind MPS` is the target survival wind speed (default: the .stm design WS).
+
 ## Failure modes
 
 - **yield** — peak bending stress reaches the material yield stress
@@ -204,8 +238,9 @@ unknown labels fall back to the file YS.
 ## CLI reference
 
 ```
-usage: elementload [-h] [--stm FILE] [--element NAME] [--tube D,t,L]
-                   [--overlap M] [--joint {rigid,slipped}]
+usage: elementload [-h] [--stm FILE] [--element NAME] [--optimize]
+                   [--catalog FILE] [--clearance M] [--length-step M]
+                   [--tube D,t,L] [--overlap M] [--joint {rigid,slipped}]
                    [--support POS:KIND] [--wind MPS]
                    [--material {al6061-t6,al6063-t6,al6060-t6,al6060-t66}]
                    [--pin-diameter M] [--n-pins N] [--damping ZETA]
@@ -217,6 +252,10 @@ usage: elementload [-h] [--stm FILE] [--element NAME] [--tube D,t,L]
 |--------|-------------|
 | `--stm FILE` | analyze each element in a YagiMechanical .stm file |
 | `--element NAME` | with `--stm`: analyze only this element |
+| `--optimize` | with `--stm` + `--element`: re-size tubes from the catalog for the target wind |
+| `--catalog FILE` | tube stock catalog for `--optimize` (default `data/tube_catalog.csv`) |
+| `--clearance M` | telescoping clearance (default 0.001 m) |
+| `--length-step M` | snap per-side tube lengths to this increment (default 0 = off) |
 | `--tube D,t,L` | tube outer diameter, wall, length (m); repeatable |
 | `--overlap M` | telescoping overlap length (m) |
 | `--joint rigid|slipped` | overlap stiffness model |

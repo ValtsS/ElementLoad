@@ -77,7 +77,29 @@ The test skips automatically under other interpreters.
 6. failure: yield, local wall crippling, joint pin shear — done
 7. report: survival wind speed per mode + diagrams (CLI acceptance test) — done
 8. later: dynamics (modal / vortex shedding), fatigue, multi-element model
+9. optimizer: catalog-constrained mass-optimal tube sizing (`optimize.py`, CLI `--optimize`) — done
 
+## Optimizer (`elementload/optimize.py`)
+
+CLI: `elementload --stm FILE --element NAME --optimize [--wind MPS] [--catalog FILE]
+[--clearance M] [--length-step M]`. Sizes each stock tube position to the lightest
+catalog tube that survives the target wind (yield + local buckling) AND telescopes
+into the tube inside it (bore >= outer OD + clearance). Tip-to-root greedy with the
+required bore propagating inward; re-solved to fixed point because drag grows with D.
+
+Key facts:
+- The telescoping bore constraint, NOT strength, fixes the diameter chain (the 20m RE
+  45mm root cannot shrink: it must host the 40mm tube). Do NOT "shrink the root to 40"
+  in tests — it produces a geometrically infeasible element.
+- Verified vs a1.stm 20m RE: the optimizer reproduces the stock chain except
+  20x2.0 -> 20x1.5 (2.4% mass saving). Stock's 20x2.0 bore (16mm) cannot telescope
+  over the 16mm tube with 1mm clearance; 20x1.5 (bore 17mm) is the clearance-correct
+  lighter pick. Survival drops 46.2 -> 43.0 m/s, still > design wind 36.6.
+- `data/tube_catalog.csv` = 11 stock sizes (12..60mm) extracted from the three .stm
+  files; `parse_catalog_lines`/`read_catalog` read it, `size_from_extents` sizes,
+  `element_mass` gives total mass. `--length-step` snaps per-side lengths to a
+  manufacturing increment (5mm default recommendation).
+- Infeasible targets (bore chain > largest catalog tube) raise ValueError.
 CLI: `python -m elementload --tube D,t,L [--tube ...] --overlap M --joint rigid|slipped
 --support POS:KIND [--support ...] [--wind MPS] [--material MAT] [--pin-diameter M] [--n-pins N]
 [--damping ZETA] [--height M] [--z0 M]`

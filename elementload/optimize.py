@@ -144,11 +144,79 @@ def size_from_extents(tubes, joint, supports, wind_speed, material,
     `clearance` slop). Re-solves to fixed point because the envelope depends on
     the diameters (drag grows with D). With `length_step > 0`, per-side tube
     lengths are snapped to that increment for practical manufacturing. Returns a
-    new TubeExtent list."""
+    new TubeExtent list.
+
+    The fixed-point map is monotone on the feasible telescoping lattice but not
+    on the full product lattice, so a single starting chain can converge to a
+    suboptimal fixed point (a heavier chain is still self-consistent). To avoid
+    that, the iteration runs from several diverse starts -- the given chain, the
+    bottom (lightest) feasible chain, and the heaviest catalog chain -- and the
+    lightest feasible result is returned."""
     from elementload.report import allowables
     if yield_stress is None:
         yield_stress = allowables(material)["yield"]
-    current = snap_lengths(tubes, length_step) if length_step > 0.0 else list(tubes)
+    starts = [list(tubes)]
+    if catalog is not None:
+        try:
+            starts.append(bottom_feasible_chain(tubes, catalog, clearance))
+        except ValueError:
+            pass
+        top = [TubeExtent(d, t_w, tube.inner_start, tube.inner_end)
+               for (d, t_w), tube in zip([catalog[-1]] * len(tubes), tubes)]
+        starts.append(top)
+    best = None
+    first_error = None
+    for start in starts:
+        try:
+            candidate = _fixed_point_iteration(
+                start, joint, supports, wind_speed, material, yield_stress,
+                catalog, pin_diameter, n_pins, clearance, length_step)
+        except ValueError as e:
+            if first_error is None:
+                first_error = e
+            continue
+        if best is None or element_mass(candidate) < element_mass(best):
+            best = candidate
+    if best is None:
+        raise first_error if first_error is not None else ValueError(
+            "no catalog tube can carry the required loads at this wind speed")
+    return best
+
+
+def bottom_feasible_chain(tubes, catalog, clearance):
+    """The lightest catalog chain that telescopes with `clearance`, built
+    tip-to-root: the smallest tube at each position whose bore can host the tube
+    already chosen outside it. This is the bottom of the feasible-chain lattice;
+    the fixed-point map is monotone there, so iterating from it reaches the
+    least (lightest) fixed point."""
+    n = len(tubes)
+    picks = [None] * n
+    required_bore = 0.0
+    for k in range(n - 1, -1, -1):
+        best = None
+        best_mass = float("inf")
+        for d, t in catalog:
+            if d - 2.0 * t < required_bore - BORE_EPS:
+                continue
+            mass = tube_mass((d, t), 1.0)
+            if mass < best_mass:
+                best_mass = mass
+                best = (d, t)
+        if best is None:
+            raise ValueError(
+                f"no catalog tube has a bore large enough to host the telescoping "
+                f"chain (needs {required_bore * 1000:.1f} mm)")
+        picks[k] = best
+        required_bore = _d(best) + clearance
+    return [TubeExtent(d, t_w, tube.inner_start, tube.inner_end)
+            for (d, t_w), tube in zip(picks, tubes)]
+
+
+def _fixed_point_iteration(start, joint, supports, wind_speed, material,
+                           yield_stress, catalog, pin_diameter, n_pins,
+                           clearance, length_step):
+    """Run the envelope sizing to a fixed point starting from `start`."""
+    current = snap_lengths(start, length_step) if length_step > 0.0 else list(start)
     for _ in range(MAX_ITER):
         moments = per_tube_max_moment(current, joint, supports, wind_speed,
                                       material, yield_stress, pin_diameter, n_pins)

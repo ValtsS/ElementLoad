@@ -143,6 +143,13 @@ local buckling) and (b) can telescope — each tube's bore must host the tube
 outside it plus a clearance. Because drag grows with diameter, the envelope is
 re-solved to a fixed point.
 
+The fixed point is not unique in general (the envelope map is monotone on the
+feasible telescoping lattice but not on all chains), so a single starting chain
+can trap the optimizer on a heavier-but-still-consistent solution. The optimizer
+therefore runs the iteration from several diverse starts — the given chain, the
+lightest telescoping chain, and the heaviest catalog chain — and returns the
+lightest feasible result.
+
 The telescoping fit is what actually constrains the chain: the root diameter is
 forced by the tip (you cannot skip sizes), not by strength alone. For the 20 m
 RE this means the 45 mm root is real — the only improvement over stock is a

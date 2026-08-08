@@ -100,6 +100,16 @@ Key facts:
   `element_mass` gives total mass. `--length-step` snaps per-side lengths to a
   manufacturing increment (5mm default recommendation).
 - Infeasible targets (bore chain > largest catalog tube) raise ValueError.
+- The fixed-point drag coupling is start-dependent: the map is monotone on the
+  feasible telescoping lattice but NOT on the full product lattice, so a single
+  start can converge to a suboptimal (heavier) self-consistent chain. Example:
+  the 10m RE at 37 m/s has two fixed points -- light (20,16,12) and heavy
+  (25,20,16) -- and uniform-heavy starts land on the heavy one. `size_from_extents`
+  therefore runs the iteration multi-start (given chain, `bottom_feasible_chain`
+  = lightest telescoping chain, and the heaviest catalog chain) and returns the
+  lightest feasible result. Proven: greedy inner sizing is optimal per envelope
+  (brute-force cross-checked); monotonicity + bottom start reaches the least
+  fixed point (Kleene) on the feasible lattice.
 - `--es-sweep` (with `--optimize`) re-runs the catalog optimization at each ES
   position (default 0.25..0.95 of the half-length, `--es-range`/`--es-steps`
   override) and prints mass/root/survival vs ES. The ES pin moves the moment

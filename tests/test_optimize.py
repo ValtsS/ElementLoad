@@ -245,3 +245,55 @@ def test_greedy_sizing_matches_brute_force_real_element():
     brute_mass = _brute_force_chain(moments, CATALOG, YIELD, 1.0e-3)
     assert brute_mass is not None
     assert abs(greedy_mass - brute_mass) < 1e-9
+
+
+def test_bottom_feasible_chain_is_lightest_telescoping():
+    """The bottom of the feasible-chain lattice: the lightest chain that
+    telescopes with clearance, built tip-to-root."""
+    from elementload.optimize import bottom_feasible_chain
+    from elementload.assembly import TubeExtent
+    stm = read_stm(_path("mechanical2.stm"))
+    el = [e for e in stm.elements if e.name == "10m RE"][0]
+    tubes = element_tube_extents(el)
+    bottom = bottom_feasible_chain(tubes, CATALOG, 1.0e-3)
+    assert [(round(t.outer_d, 6), round(t.wall, 6)) for t in bottom] == \
+        [(0.020, 0.0015), (0.016, 0.0015), (0.012, 0.001)]
+    for i, t in enumerate(bottom):
+        if i:
+            assert fits_inside(bottom[i - 1], t, 1.0e-3)
+
+
+def test_size_from_extents_finds_lightest_fixed_point():
+    """The fixed-point iteration is start-dependent (the 10m RE at 37 m/s has
+    two self-consistent chains: light (20,16,12) and heavy (25,20,16)). The
+    multi-start optimizer must return the lightest feasible one regardless of the
+    starting chain."""
+    stm = read_stm(_path("mechanical2.stm"))
+    el = [e for e in stm.elements if e.name == "10m RE"][0]
+    tubes = element_tube_extents(el)
+    opt = size_from_extents(tubes, "rigid", [("center", "fixed")],
+                            37.0, el.material_key, el.yield_stress,
+                            catalog=CATALOG)
+    assert [(round(t.outer_d, 6), round(t.wall, 6)) for t in opt] == \
+        [(0.020, 0.0015), (0.016, 0.0015), (0.012, 0.001)]
+    light_mass = element_mass(opt)
+    assert light_mass < element_mass(tubes) or abs(light_mass - element_mass(tubes)) < 1e-9
+    # the heavy fixed point exists at this wind speed and must NOT be returned
+    assert opt[0].outer_d < 0.025
+
+
+def test_fixed_point_iteration_is_start_independent_after_multistart():
+    """Same light result even when the element is handed in as a heavy uniform
+    chain: the multi-start searches from the bottom of the feasible lattice too,
+    so a suboptimal starting chain cannot trap the optimizer on the heavy fixed
+    point."""
+    from elementload.assembly import TubeExtent
+    stm = read_stm(_path("mechanical2.stm"))
+    el = [e for e in stm.elements if e.name == "10m RE"][0]
+    tubes = element_tube_extents(el)
+    heavy = [TubeExtent(0.060, 0.002, t.inner_start, t.inner_end) for t in tubes]
+    opt = size_from_extents(heavy, "rigid", [("center", "fixed")],
+                            37.0, el.material_key, el.yield_stress,
+                            catalog=CATALOG)
+    assert [(round(t.outer_d, 6), round(t.wall, 6)) for t in opt] == \
+        [(0.020, 0.0015), (0.016, 0.0015), (0.012, 0.001)]

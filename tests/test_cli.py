@@ -189,3 +189,22 @@ def test_cli_optimize_requires_single_element():
                             capture_output=True, text=True, timeout=120)
     assert result.returncode != 0
     assert "--optimize requires exactly one element" in result.stderr
+
+
+def test_cli_optimize_es_sweep_reports_mass_vs_position():
+    code = ("from elementload.cli import main; "
+            "main(['--stm', 'data/a1.stm', '--element', '40m RE', '--optimize', "
+            "'--es-sweep', '--es-range', '4', '10', '--es-steps', '7', '--wind', '35'])")
+    result = subprocess.run([sys.executable, "-c", code],
+                            capture_output=True, text=True, timeout=300)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    assert "ES position sweep" in out
+    assert "mass [kg]" in out and "survival [m/s]" in out
+    assert "infeasible" in out  # near-tip and near-center positions fail
+    # some feasible row carries a mass close to the optimized 14.0 kg chain
+    rows = [l for l in out.splitlines() if "  " in l and l.strip() and
+            l.strip()[0].isdigit()]
+    feasible = [l for l in rows if "infeasible" not in l]
+    assert feasible, "expected at least one feasible sweep row"
+    assert any("14.01" in l for l in feasible)

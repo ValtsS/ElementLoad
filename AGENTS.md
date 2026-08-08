@@ -100,6 +100,15 @@ Key facts:
   `element_mass` gives total mass. `--length-step` snaps per-side lengths to a
   manufacturing increment (5mm default recommendation).
 - Infeasible targets (bore chain > largest catalog tube) raise ValueError.
+- `--es-sweep` (with `--optimize`) re-runs the catalog optimization at each ES
+  position (default 0.25..0.95 of the half-length, `--es-range`/`--es-steps`
+  override) and prints mass/root/survival vs ES. The ES pin moves the moment
+  peak off the centre mount (40m RE @35 m/s: 1860 -> ~140 Nm at centre), so
+  sections can thin toward centre; but the telescoping bore chain locks the
+  root, so a range of ES positions share one chain and differ only in survival.
+  Sweep rows that fail sizing print `infeasible` (ES too close to centre leaves
+  the outer cantilever unsupported; ES near the tip over-peaks the pin).
+
 CLI: `python -m elementload --tube D,t,L [--tube ...] --overlap M --joint rigid|slipped
 --support POS:KIND [--support ...] [--wind MPS] [--material MAT] [--pin-diameter M] [--n-pins N]
 [--damping ZETA] [--height M] [--z0 M]`

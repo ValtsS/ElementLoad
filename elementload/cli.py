@@ -1,5 +1,6 @@
 import argparse
 import math
+import os
 
 from elementload.report import build_model, analyze, survival_wind_speed, build_model_from_geometry
 from elementload.stm import read_stm, element_tube_extents
@@ -270,6 +271,50 @@ def render_optimization(opt_tubes, stock_tubes, wind_speed, material, yield_stre
     return "\n".join(lines)
 
 
+def render_es_sweep(el, wind_speed, args, parser):
+    """Sweep the ES support position, re-optimizing the tube chain at each point.
+    Returns (lines, rows) for the sweep table. Each row: (es, mass, root_d, survival)
+    or (es, None, None, None) when infeasible."""
+    from elementload.optimize import element_mass
+    mat = args.material or el.material_key
+    yield_stress = None if mat is not None else el.yield_stress
+    stock_tubes = element_tube_extents(el)
+    half = max(max(t.inner_end for t in stock_tubes), abs(min(t.inner_start for t in stock_tubes)))
+    if args.es_range is None:
+        lo, hi = 0.25 * half, 0.95 * half
+    else:
+        lo, hi = sorted(args.es_range)
+    n = max(args.es_steps, 2)
+    catalog = read_catalog(args.catalog or os.path.join(
+        os.path.dirname(__file__), "..", "data", "tube_catalog.csv"))
+    lines = []
+    lines.append(f"ES position sweep at target wind {wind_speed:.1f} m/s "
+                 f"({n} points, {lo:.2f}..{hi:.2f} m from centre, rigid ES):")
+    lines.append(f"  {'ES [m]':>8}  {'mass [kg]':>10}  {'root [mm]':>9}  "
+                 f"{'survival [m/s]':>14}   chain (centre -> tip)")
+    rows = []
+    for es in [lo + (hi - lo) * k / (n - 1) for k in range(n)]:
+        supports = [("center", "fixed"), (es, "pin"), (-es, "pin")]
+        try:
+            opt = size_from_extents(stock_tubes, args.joint or "rigid", supports,
+                                    wind_speed, mat or el.material, yield_stress,
+                                    catalog=catalog, pin_diameter=args.pin_diameter,
+                                    n_pins=args.n_pins, clearance=args.clearance,
+                                    length_step=args.length_step)
+            model = build_model_from_geometry(opt, args.joint or "rigid", supports,
+                                              wind_speed, mat or el.material,
+                                              yield_stress=yield_stress)
+            v = survival_wind_speed(model, "yield")
+            chain = " ".join(f"{t.outer_d * 1000:.0f}" for t in opt)
+            rows.append((es, element_mass(opt), opt[0].outer_d * 1000, v))
+            lines.append(f"  {es:8.2f}  {rows[-1][1]:10.2f}  {rows[-1][2]:9.0f}  "
+                         f"{v:14.1f}   {chain}")
+        except ValueError:
+            rows.append((es, None, None, None))
+            lines.append(f"  {es:8.2f}  {'infeasible':>10}")
+    return "\n".join(lines), rows
+
+
 def _maybe_plot(args, model, result, label, wind_speed, pair=None):
     """Write a plot of `model`/`result` colored by args.plot. If `pair` is given
     (the sag model when `--es-model both`), draw both ES support models side by
@@ -308,6 +353,14 @@ def main(argv=None):
     parser.add_argument("--length-step", type=float, default=0.0, metavar="M",
                         help="snap per-side tube lengths to this increment (e.g. 0.005 "
                              "for 5 mm); 0 disables snapping")
+    parser.add_argument("--es-sweep", action="store_true",
+                        help="with --optimize: sweep the ES support position, re-optimizing "
+                             "the tubes at each position, and print mass vs ES")
+    parser.add_argument("--es-range", type=float, nargs=2, default=None, metavar=("START", "END"),
+                        help="ES position range for --es-sweep (m from centre; default "
+                             "0.25 x to 0.95 x element half-length)")
+    parser.add_argument("--es-steps", type=int, default=15, metavar="N",
+                        help="number of sweep points for --es-sweep (default 15)")
     parser.add_argument("--tube", action="append", type=_tube_spec,
                         metavar="D,t,L", help="tube outer diameter, wall, length (SI); repeatable")
     parser.add_argument("--overlap", type=float, metavar="M",
@@ -388,6 +441,9 @@ def _main_stm(args, parser):
         el = elements[0]
         mat = args.material or el.material_key
         yield_stress = None if mat is not None else el.yield_stress
+        if args.es_sweep:
+            print(render_es_sweep(el, wind, args, parser)[0])
+            return
         supports = args.support
         if supports is None:
             supports = [("center", "fixed")]
@@ -396,7 +452,6 @@ def _main_stm(args, parser):
                 supports += [(el.support_distance, es_kind), (-el.support_distance, es_kind)]
         catalog_path = args.catalog
         if catalog_path is None:
-            import os
             catalog_path = os.path.join(os.path.dirname(__file__), "..", "data", "tube_catalog.csv")
         catalog = read_catalog(catalog_path)
         stock_tubes = element_tube_extents(el)

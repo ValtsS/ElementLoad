@@ -156,8 +156,29 @@ Options:
 | `--catalog FILE` | tube stock catalog CSV (`D_mm, t_mm` rows; default `data/tube_catalog.csv`) |
 | `--clearance M` | telescoping clearance between tubes (default 0.001 = 1 mm) |
 | `--length-step M` | snap per-side tube lengths to this increment, e.g. `0.005` for 5 mm (default 0 = off) |
+| `--es-sweep` | sweep the ES support position, re-optimizing the tubes at each point |
+| `--es-range START END` | ES position range for the sweep (m from centre; default 0.25x..0.95x half-length) |
+| `--es-steps N` | sweep points (default 15) |
 
 `--wind MPS` is the target survival wind speed (default: the .stm design WS).
+
+### ES support position sweep
+
+The ES support is usually the one thing a builder can actually move (the truss
+attachment point). The `--es-sweep` mode re-runs the whole catalog optimization
+at each ES position and prints mass, root tube and yield survival vs. ES:
+
+```
+elementload.cmd --stm data/a1.stm --element "40m RE" --optimize --es-sweep --wind 35
+```
+
+The ES pin moves the moment peak away from the centre mount (for the 40 m RE at
+35 m/s it cuts the centre moment from 1860 to ~140 N·m), so the section can thin
+toward the centre. But the telescoping bore chain can mask the benefit: the root
+diameter is locked by the tip chain, so a range of ES positions give the *same*
+mass and only differ in survival. Positions too close to centre leave the outer
+cantilever unsupported (infeasible); positions near the tip put a huge moment at
+the pin and force a heavier chain.
 
 ## Failure modes
 
@@ -240,6 +261,7 @@ unknown labels fall back to the file YS.
 ```
 usage: elementload [-h] [--stm FILE] [--element NAME] [--optimize]
                    [--catalog FILE] [--clearance M] [--length-step M]
+                   [--es-sweep] [--es-range START END] [--es-steps N]
                    [--tube D,t,L] [--overlap M] [--joint {rigid,slipped}]
                    [--support POS:KIND] [--wind MPS]
                    [--material {al6061-t6,al6063-t6,al6060-t6,al6060-t66}]
@@ -256,6 +278,9 @@ usage: elementload [-h] [--stm FILE] [--element NAME] [--optimize]
 | `--catalog FILE` | tube stock catalog for `--optimize` (default `data/tube_catalog.csv`) |
 | `--clearance M` | telescoping clearance (default 0.001 m) |
 | `--length-step M` | snap per-side tube lengths to this increment (default 0 = off) |
+| `--es-sweep` | with `--optimize`: sweep the ES support position, re-optimizing at each point |
+| `--es-range START END` | ES range for the sweep (m; default 0.25x..0.95x half-length) |
+| `--es-steps N` | ES sweep points (default 15) |
 | `--tube D,t,L` | tube outer diameter, wall, length (m); repeatable |
 | `--overlap M` | telescoping overlap length (m) |
 | `--joint rigid|slipped` | overlap stiffness model |

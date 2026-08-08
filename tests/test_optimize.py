@@ -3,6 +3,7 @@ import os
 import pytest
 
 from elementload.optimize import (
+    _size_telescoped,
     element_mass,
     fits_inside,
     parse_catalog_lines,
@@ -10,6 +11,7 @@ from elementload.optimize import (
     read_catalog,
     size_from_extents,
     snap_lengths,
+    tube_mass,
 )
 from elementload.report import build_model_from_geometry, survival_wind_speed
 from elementload.stm import element_tube_extents, read_stm
@@ -167,3 +169,79 @@ def test_size_from_extents_with_length_step_survives():
                                       stm.wind_speed, el.material_key,
                                       yield_stress=el.yield_stress)
     assert survival_wind_speed(model, "yield") >= stm.wind_speed
+
+
+def _tube_capacity(d, t, yield_stress):
+    from elementload.failure import local_buckling_stress
+    from elementload.geometry import tube_section_modulus
+    z = tube_section_modulus(d, t)
+    if z <= 0.0:
+        return 0.0
+    return min(yield_stress, local_buckling_stress(d, t, 69.0e9)) * z
+
+
+def _brute_force_chain(moments, catalog, yield_stress, clearance):
+    """Exhaustive search for the minimum-mass telescoping chain. Returns the
+    minimum mass (or None if infeasible). Position k's bore must host the tube
+    at k+1 (tip side) plus clearance."""
+    import itertools
+    best = None
+    for combo in itertools.product(catalog, repeat=len(moments)):
+        ok = True
+        for k in range(len(combo) - 1):
+            d_in, t_in = combo[k]
+            d_out = combo[k + 1][0]
+            if d_out > (d_in - 2.0 * t_in) - clearance + 1e-9:
+                ok = False
+                break
+        if not ok:
+            continue
+        mass = 0.0
+        for (d, t), m in zip(combo, moments):
+            if m > _tube_capacity(d, t, yield_stress):
+                ok = False
+                break
+            mass += tube_mass((d, t), 1.0)
+        if not ok:
+            continue
+        best = mass if best is None else min(best, mass)
+    return best
+
+
+def test_greedy_sizing_matches_brute_force():
+    """The tip-to-root greedy is provably optimal for this catalog (mass and
+    capacity are monotone in diameter), so it must agree with exhaustive search
+    over all telescoping chains. Exercises both feasible and infeasible cases
+    and a range of clearances."""
+    import random
+    rng = random.Random(20240808)
+    for _ in range(150):
+        n = rng.randint(1, 4)
+        moments = [rng.uniform(2.0, 300.0) for _ in range(n)]
+        clearance = rng.choice([0.0, 0.0005, 0.001, 0.002])
+        try:
+            picks = _size_telescoped(moments, CATALOG, YIELD, clearance)
+            greedy_mass = sum(tube_mass(p, 1.0) for p in picks)
+        except ValueError:
+            greedy_mass = None
+        brute_mass = _brute_force_chain(moments, CATALOG, YIELD, clearance)
+        if greedy_mass is None:
+            assert brute_mass is None, (moments, clearance, brute_mass)
+        else:
+            assert brute_mass is not None, (moments, clearance, greedy_mass)
+            assert abs(greedy_mass - brute_mass) < 1e-9, (moments, clearance, greedy_mass, brute_mass)
+
+
+def test_greedy_sizing_matches_brute_force_real_element():
+    """Greedy vs exhaustive search on the 10m RE's actual moment envelope."""
+    from elementload.optimize import per_tube_max_moment
+    stm = read_stm(_path("mechanical2.stm"))
+    el = [e for e in stm.elements if e.name == "10m RE"][0]
+    tubes = element_tube_extents(el)
+    moments = per_tube_max_moment(tubes, "rigid", [("center", "fixed")],
+                                  stm.wind_speed, el.material_key, el.yield_stress)
+    picks = _size_telescoped(moments, CATALOG, YIELD, 1.0e-3)
+    greedy_mass = sum(tube_mass(p, 1.0) for p in picks)
+    brute_mass = _brute_force_chain(moments, CATALOG, YIELD, 1.0e-3)
+    assert brute_mass is not None
+    assert abs(greedy_mass - brute_mass) < 1e-9

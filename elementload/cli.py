@@ -235,12 +235,20 @@ def _analyze_es_pair(el, wind, args, parser):
     return labels, models, results
 
 
-def _maybe_plot(args, model, result, label):
+def _maybe_plot(args, model, result, label, wind_speed, pair=None):
+    """Write a plot of `model`/`result` colored by args.plot. If `pair` is given
+    (the sag model when `--es-model both`), draw both ES support models side by
+    side. Returns the written path or None."""
     if args.plot is None:
         return None
-    from elementload.plot import plot_element
+    from elementload.plot import plot_element, plot_es_pair
     path = args.plot_file or f"{label}_{args.plot}.png"
-    plot_element(model, result, path, quantity=args.plot, title=label)
+    if pair is not None:
+        plot_es_pair((model, result), pair, path, quantity=args.plot,
+                     title=label, wind_speed=wind_speed)
+    else:
+        plot_element(model, result, path, quantity=args.plot, title=label,
+                     wind_speed=wind_speed)
     return path
 
 
@@ -304,7 +312,7 @@ def main(argv=None):
     result = analyze(model)
     print(render_report(model, result, wind, damping=args.damping,
                         height=height, z_0=args.z0))
-    path = _maybe_plot(args, model, result, "element")
+    path = _maybe_plot(args, model, result, "element", wind)
     if path:
         print(f"Plot saved: {path}")
 
@@ -344,6 +352,7 @@ def _main_stm(args, parser):
         result = analyze(model)
         title = f"{el.name} ({el.freq / 1e6:.2f} MHz, mount {el.mount_pos * 1000:.0f} mm)"
         print()
+        pair = None
         if args.es_model == "both" and el.support_distance > 0.0 and args.support is None:
             _, models, results = _analyze_es_pair(el, wind, args, parser)
             analyses = list(zip(("pin", "sag"), models, results))
@@ -352,12 +361,13 @@ def _main_stm(args, parser):
             # the full detail report shows the rigid-pin model; the sag summary
             # is already in the comparison block above
             model, result = models[0], results[0]
+            pair = (models[1], results[1])
             print(render_report(model, result, wind, damping=args.damping,
                                 height=height, z_0=args.z0, title=title))
         else:
             print(render_report(model, result, wind, damping=args.damping,
                                 height=height, z_0=args.z0, title=title))
-        path = _maybe_plot(args, model, result, el.name)
+        path = _maybe_plot(args, model, result, el.name, wind, pair=pair)
         if path:
             print(f"Plot saved: {path}")
 

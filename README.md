@@ -113,9 +113,17 @@ Available quantities: `stress` (the default when `--plot` is used), `moment`,
 The figure draws the telescoping tube geometry as a horizontal band — the
 diameters are exaggerated and labelled *not to scale*, since a true 1:1
 drawing would be invisible for a thin, long element — with a colored
-centerline gradient, marked supports and a colorbar. `--plot-file PATH`
-chooses the output file (default `<element>_<quantity>.png`). Requires
-matplotlib (an optional dependency, declared in pyproject.toml).
+centerline gradient, marked supports, a colorbar and a dashed deformed-shape
+overlay (magnification factor stated on the plot). The plot is evaluated at
+the analysis wind speed (shown in the title). Colorbar units match the report:
+stress in MPa, deflection in mm.
+
+For an element with an ES support, the default `--es-model both` writes a
+two-panel figure showing the **rigid-pin and sag-rope models side by side** on
+a shared color scale, so the two support assumptions can be compared visually.
+`--plot-file PATH` chooses the output file (default
+`<element>_<quantity>.png`). Requires matplotlib (an optional dependency,
+declared in pyproject.toml).
 
 ## Failure modes
 

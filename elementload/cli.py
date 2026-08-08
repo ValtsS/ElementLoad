@@ -388,7 +388,12 @@ def _main_stm(args, parser):
         el = elements[0]
         mat = args.material or el.material_key
         yield_stress = None if mat is not None else el.yield_stress
-        supports = args.support or [("center", "fixed")]
+        supports = args.support
+        if supports is None:
+            supports = [("center", "fixed")]
+            if el.support_distance > 0.0:
+                es_kind = "sag" if args.es_model == "sag" else "pin"
+                supports += [(el.support_distance, es_kind), (-el.support_distance, es_kind)]
         catalog_path = args.catalog
         if catalog_path is None:
             import os

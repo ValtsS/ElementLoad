@@ -125,9 +125,19 @@ def test_size_from_extents_raises_when_chain_infeasible():
     stm = read_stm(_path("a1.stm"))
     el = [e for e in stm.elements if e.name == "20m RE"][0]
     tubes = element_tube_extents(el)
-    with pytest.raises(ValueError, match="bore chain"):
+    with pytest.raises(ValueError, match="bore"):
         size_from_extents(tubes, "rigid", [("center", "fixed")], 55.0,
                           el.material_key, el.yield_stress, catalog=CATALOG)
+
+
+def test_size_from_extents_raises_when_catalog_too_small_for_chain():
+    stm = read_stm(_path("a1.stm"))
+    el = [e for e in stm.elements if e.name == "20m RE"][0]
+    tubes = element_tube_extents(el)
+    small = [t for t in CATALOG if t[0] <= 0.040]
+    with pytest.raises(ValueError, match="bore"):
+        size_from_extents(tubes, "rigid", [("center", "fixed")], stm.wind_speed,
+                          el.material_key, el.yield_stress, catalog=small)
 
 
 def test_snap_lengths_rounds_to_step():

@@ -91,7 +91,7 @@ def per_tube_max_moment(tubes, joint, supports, wind_speed, material,
         m_i = math.hypot(m_wi, m_gi)
         m_j = math.hypot(m_wj, m_gj)
         for k, t in enumerate(tubes):
-            if t.inner_start <= seg.x0 and seg.x1 <= t.inner_end:
+            if seg.outer_d == t.outer_d:
                 moments[k] = max(moments[k], m_i, m_j)
     return moments
 
@@ -185,6 +185,7 @@ def _size_telescoped(moments, catalog, yield_stress, clearance):
     n = len(moments)
     picks = [None] * n
     required_bore = 0.0
+    failed_bore = None
     for k in range(n - 1, -1, -1):
         best = None
         best_mass = float("inf")
@@ -200,10 +201,22 @@ def _size_telescoped(moments, catalog, yield_stress, clearance):
             if mass < best_mass:
                 best_mass = mass
                 best = (d, t)
+        if best is None and failed_bore is None:
+            failed_bore = required_bore
         picks[k] = best if best is not None else (0.0, 0.0)
         required_bore = _d(picks[k]) + clearance
     if any(_d(p) == 0.0 for p in picks):
+        failed = next(k for k, p in enumerate(picks) if _d(p) == 0.0)
+        need = moments[failed]
+        max_d, max_t = catalog[-1]
+        if max_d - 2.0 * max_t < failed_bore - BORE_EPS:
+            cause = (f"the telescoping bore chain needs {failed_bore * 1000:.1f} mm "
+                     f"but the largest catalog tube has only "
+                     f"{(max_d - 2.0 * max_t) * 1000:.1f} mm of bore")
+        else:
+            cause = (f"the largest catalog tube cannot carry the "
+                     f"{need:.1f} N m demand at this position")
         raise ValueError(
-            "no catalog tube can carry the required loads at this wind speed: "
-            "the telescoping bore chain exceeds the largest catalog tube")
+            f"no catalog tube can carry the required loads at this wind speed: "
+            f"{cause} (tip-side position {failed})")
     return picks

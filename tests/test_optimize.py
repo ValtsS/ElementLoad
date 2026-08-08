@@ -213,6 +213,55 @@ def test_search_layouts_infeasible_layouts_skipped():
     assert results == []
 
 
+def test_layout_search_root_bounds_survival():
+    # the 30mm root cannot reach the 35 m/s the 35mm root reaches
+    stm = read_stm(_path("a1.stm"))
+    el = [e for e in stm.elements if e.name == "20m RE"][0]
+    tubes = element_tube_extents(el)
+    small = [t for t in CATALOG if t[0] <= 0.030]
+    results = search_layouts(
+        tubes, "rigid", [("center", "fixed")], 35.0,
+        el.material_key, None, catalog=small,
+        n_range=(3, 5), overlaps=(0.10, 0.20), ratios=(0.8, 1.2),
+        sleeves=(None, 0.15), target_winds=[30, 35, 40], workers=1)
+    assert results
+    best = max(results, key=lambda r: r["survival"])
+    assert best["survival"] < 31.0
+    assert int(best["chain"].split(";")[0]) == 30
+
+
+def test_pareto_frontier_and_best_per_root():
+    from elementload.cli import _best_per_root, _pareto_frontier
+    results = [
+        {"survival": 30.0, "mass": 3.0, "chain": "30;25;20;12"},
+        {"survival": 34.0, "mass": 3.5, "chain": "35;30;25;20;12"},
+        # dominated: heavier than the 34 m/s design but no faster
+        {"survival": 34.0, "mass": 4.0, "chain": "35;30;25;16"},
+        {"survival": 36.8, "mass": 3.97, "chain": "40;35;30;25;20;12"},
+    ]
+    front = _pareto_frontier(results)
+    assert len(front) == 3
+    assert all(r["survival"] <= 34.0 for r in front if r["mass"] < 3.97)
+    best = _best_per_root(results, 35.0)
+    assert best[30.0]["survival"] == 30.0
+    assert best[40.0]["chain"].endswith("12")
+
+
+def test_pareto_frontier_collapses_bisection_noise():
+    # two layouts at the same survival (differing only in bisection FP noise)
+    # collapse to the lighter one
+    from elementload.cli import _pareto_frontier
+    results = [
+        {"survival": 35.756546703040826, "mass": 3.7529315, "chain": "35;30;25;20;12"},
+        {"survival": 35.75654670316001, "mass": 3.8723198, "chain": "35;30;25;20;12"},
+        {"survival": 36.8405, "mass": 3.9659, "chain": "40;35;30;25;20;12"},
+    ]
+    front = _pareto_frontier(results)
+    assert len(front) == 2
+    assert [r["chain"] for r in front] == ["35;30;25;20;12", "40;35;30;25;20;12"]
+    assert front[0]["mass"] == pytest.approx(3.7529315)
+
+
 def test_snap_lengths_rounds_to_step():
     from elementload.assembly import TubeExtent
     tubes = [TubeExtent(0.045, 0.002, 0.0, 0.55),

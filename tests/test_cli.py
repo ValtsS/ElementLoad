@@ -220,6 +220,7 @@ def test_cli_optimize_layout_search_reports_frontier():
     out = result.stdout
     assert "Layout design-space search" in out
     assert "survival" in out and "mass" in out and "chain" in out
+    assert "Pareto frontier" in out and "per root tube diameter" in out
     # the known lightest-at-design layout from the brute force is found
     assert "40;35;30;25;20;12" in out
     rows = [l for l in out.splitlines() if l.startswith(" ")]

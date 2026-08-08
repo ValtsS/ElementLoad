@@ -339,25 +339,66 @@ def render_layout_search(el, wind_speed, args, parser):
     lines = []
     lines.append(f"Layout design-space search at target wind {wind_speed:.1f} m/s "
                  f"({len(results)} feasible of the grid, {args.layout_workers or 'all cores'} workers):")
-    lines.append(f"  {'survival':>8}  {'mass':>9}  {'N':>2}  {'ov':>4}  {'taper':>5}  "
-                 f"{'sleeve':>6}   chain (centre -> tip)")
-    best_by_survival = {}
-    for r in results:
-        key = round(r["survival"], 1)
-        if key not in best_by_survival or r["mass"] < best_by_survival[key]["mass"]:
-            best_by_survival[key] = r
+    lines.append("")
     design_met = [r for r in results if r["survival"] >= wind_speed]
     lightest_ok = min(design_met, key=lambda r: r["mass"]) if design_met else None
-    for key in sorted(best_by_survival):
-        r = best_by_survival[key]
+
+    lines.append("  Pareto frontier (lightest non-dominated design at each survival):")
+    lines.append(f"    {'survival':>8}  {'mass':>9}  {'N':>2}  {'ov':>4}  {'taper':>5}  "
+                 f"{'sleeve':>6}   chain (centre -> tip)")
+    for r in _pareto_frontier(results):
         mark = " <- lightest at/above design wind" if r is lightest_ok else ""
         lines.append(
-            f"  {r['survival']:8.1f}  {r['mass'] * 1000:8.1f} g  {r['n']:2d}  "
+            f"    {r['survival']:8.1f}  {r['mass'] * 1000:8.1f} g  {r['n']:2d}  "
             f"{r['overlap']:4.2f}  {r['ratio']:5.2f}  "
             f"{r['sleeve'] if r['sleeve'] is not None else '-':>6}   [{r['chain']}]{mark}")
     if lightest_ok is None:
-        lines.append("  (no layout reaches the design wind speed)")
+        lines.append("    (no layout reaches the design wind speed)")
+    lines.append("")
+    lines.append("  Best design per root tube diameter (centre-side OD):")
+    lines.append(f"    {'root':>5}  {'best survival':>13}  {'mass':>9}  "
+                 f"{'meets wind?':>11}   chain (centre -> tip)")
+    for root, r in sorted(_best_per_root(results, wind_speed).items()):
+        meets = "yes" if r["survival"] >= wind_speed else "NO"
+        lines.append(
+            f"    {root:4.0f} mm  {r['survival']:11.1f} m/s  {r['mass'] * 1000:7.1f} g  "
+            f"{meets:>11}   [{r['chain']}]")
     return "\n".join(lines)
+
+
+def _pareto_frontier(results, bucket=0.1):
+    """Non-dominated layouts: keep a result unless some other result has both a
+    lower (or equal) mass and a higher (or equal) survival, where survival is
+    bucketed to `bucket` m/s (default 0.1, matching the display) so bisection
+    floating-point noise does not create near-duplicate frontier points.
+    Sorted by survival."""
+    front = []
+    for i, r in enumerate(results):
+        s_r = round(r["survival"] / bucket)
+        dominated = any(
+            round(o["survival"] / bucket) >= s_r and o["mass"] <= r["mass"]
+            and (round(o["survival"] / bucket) > s_r or o["mass"] < r["mass"])
+            for j, o in enumerate(results) if j != i)
+        if not dominated:
+            front.append(r)
+    return sorted(front, key=lambda r: r["survival"])
+
+
+def _best_per_root(results, wind_speed, bucket=0.1):
+    """For each root tube OD (mm, centre-side), the layout with the highest
+    survival wind speed (ties broken by lightest mass). Survival is bucketed to
+    `bucket` m/s so bisection floating-point noise does not pick a heavier
+    layout at a nominally-equal wind speed."""
+    best = {}
+    for r in results:
+        root = float(r["chain"].split(";")[0])
+        cur = best.get(root)
+        s_r = round(r["survival"] / bucket)
+        s_cur = round(cur["survival"] / bucket) if cur is not None else None
+        if cur is None or (s_r > s_cur
+                           or (s_r == s_cur and r["mass"] < cur["mass"])):
+            best[root] = r
+    return best
 
 
 def _maybe_plot(args, model, result, label, wind_speed, pair=None):

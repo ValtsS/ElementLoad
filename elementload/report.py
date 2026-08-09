@@ -1,7 +1,13 @@
 import math
 from dataclasses import dataclass
 
-from elementload.assembly import Tube, TubeExtent, build_from_extents, build_telescoping
+from elementload.assembly import (
+    Tube,
+    TubeExtent,
+    build_from_extents,
+    build_telescoping,
+    extents_from_specs,
+)
 from elementload.failure import allowables, local_buckling_stress
 from elementload.geometry import tube_area, tube_section_modulus
 from elementload.solver import (
@@ -48,8 +54,10 @@ def build_model(tube_specs, overlap, joint, supports, wind_speed, material="al60
     loads = [DistributedLoad(i, wind_and_weight_load(seg, wind_speed, material))
              for i, seg in enumerate(segments)]
     supports_obj = _support_objects(supports, nodes_x)
+    geometry_extents = extents_from_specs(tube_specs, overlap)
     return Model(tube_specs, overlap, joint, supports, material, wind_speed,
-                 nodes, elements, supports_obj, loads, segments, pin_diameter, n_pins)
+                 nodes, elements, supports_obj, loads, segments, pin_diameter, n_pins,
+                 geometry_extents)
 
 
 def _support_objects(supports, nodes_x):

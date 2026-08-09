@@ -96,6 +96,21 @@ def _build_half(tubes, overlap, joint):
     return segments
 
 
+def extents_from_specs(tube_specs, overlap):
+    """Per-tube per-side extents (TubeExtent, innermost first) for `--tube`
+    style specs (D, t, length) + a single overlap, matching the mesh built by
+    build_telescoping: the center tube's `length` is its full physical length
+    (per-side = length/2), each outer tube's `length` is its per-side extent."""
+    out = []
+    d0, t0, l0 = tube_specs[0]
+    out.append(TubeExtent(d0, t0, 0.0, l0 / 2.0))
+    x = max(l0 / 2.0 - overlap, 0.0)
+    for d, t, L in tube_specs[1:]:
+        out.append(TubeExtent(d, t, x, x + L))
+        x += L
+    return out
+
+
 def build_telescoping(tubes, overlap, joint):
     right = _build_half(tubes, overlap, joint)
     left = [

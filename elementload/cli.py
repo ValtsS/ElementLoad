@@ -83,6 +83,20 @@ def _deflection_samples(model, result):
     return [(n.x, abs(w)) for n, (w, _) in zip(model.nodes, result.displacements)]
 
 
+def _tubes_table(extents, indent="    "):
+    """Per-tube table for a list of (D, t, start, stop) extents: Dxwall, per-side
+    start/stop (m from centre), exposed (per-side), and full physical length
+    (2x exposed). Matches the layout-search materialize table."""
+    lines = [f"{indent}tubes (centre -> tip):"]
+    lines.append(f"{indent}{'Dxwall':<12} {'start':>6} {'stop':>6} {'exposed':>8} {'full':>8}")
+    for d, t, a, b in extents:
+        exposed = b - a
+        full = 2.0 * exposed
+        lines.append(f"{indent}{f'{d * 1000:.0f}x{t * 1000:g}':<12} {a:>6.3f} {b:>6.3f} "
+                     f"{exposed:>8.3f} {full:>8.3f}")
+    return "\n".join(lines)
+
+
 def render_report(model, result, wind_speed, damping=0.01, height=10.0, z_0=0.05, title=None):
     lines = []
     if title:
@@ -92,9 +106,12 @@ def render_report(model, result, wind_speed, damping=0.01, height=10.0, z_0=0.05
         lines.append("Element load analysis")
         lines.append("=====================")
     lines.append("")
-    lines.append("Tubes (D x t, length):")
-    for i, (d, t, L) in enumerate(model.tube_specs, start=1):
-        lines.append(f"  {i}: {d * 1000:.1f} x {t * 1000:.2f} mm, {L * 1000:.0f} mm")
+    extents = model.geometry_extents
+    if extents is not None:
+        extents = [(e.outer_d, e.wall, e.inner_start, e.inner_end) for e in extents]
+    else:
+        extents = [(d, t, 0.0, L) for d, t, L in model.tube_specs]
+    lines.append(_tubes_table(extents, indent="  "))
     if isinstance(model.overlap, (list, tuple)):
         ov = ", ".join(f"{o * 1000:.0f}" for o in model.overlap)
         lines.append(f"Overlap per joint: {ov} mm, joint model: {model.joint}")
@@ -446,17 +463,9 @@ def _materialize_command(r, joint, supports, wind_speed, material=None):
 
 
 def _materialize_table(r):
-    """Compact per-tube table for a layout-search result: Dxwall, start, stop,
-    exposed (per-side), and full length, all in metres."""
-    lines = ["    tubes (centre -> tip):"]
-    lines.append("    {:<12} {:>6} {:>6} {:>8} {:>8}".format(
-        "Dxwall", "start", "stop", "exposed", "full"))
-    for d, t, a, b in r["extents"]:
-        exposed = b - a
-        full = 2.0 * exposed
-        lines.append("    {:<12} {:>6.3f} {:>6.3f} {:>8.3f} {:>8.3f}".format(
-            f"{d*1000:.0f}x{t*1000:g}", a, b, exposed, full))
-    return "\n".join(lines)
+    """Compact per-tube table for a layout-search result, matching the main
+    report's tube table: Dxwall, start, stop, exposed (per-side), full length."""
+    return _tubes_table(r["extents"])
 
 
 def _pareto_frontier(results, bucket=0.1):

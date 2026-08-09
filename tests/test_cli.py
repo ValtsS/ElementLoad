@@ -28,6 +28,35 @@ def test_render_report_contains_sections():
     assert "yield" in text and "buckling" in text and "pin_shear" in text
 
 
+def test_render_report_tube_table_matches_layout_materialize():
+    from elementload.assembly import TubeExtent
+    from elementload.cli import _materialize_table, _tubes_table
+    tubes = [(0.030, 0.002, 0.6), (0.025, 0.002, 0.6), (0.020, 0.002, 0.6), (0.016, 0.0015, 0.6)]
+    model = build_model(tubes, overlap=0.05, joint="rigid",
+                        supports=[("center", "fixed")], wind_speed=40.0)
+    result = analyze(model)
+    text = render_report(model, result, 40.0)
+    assert "tubes (centre -> tip):" in text
+    assert "Dxwall" in text and "exposed" in text and "full" in text
+    r = {"extents": [(t.outer_d, t.wall, t.inner_start, t.inner_end)
+                     for t in model.geometry_extents]}
+    assert _materialize_table(r) == _tubes_table(r["extents"])
+
+
+def test_build_model_geometry_extents_match_telescoping():
+    from elementload.assembly import extents_from_specs
+    tubes = [(0.030, 0.002, 0.6), (0.025, 0.002, 0.6), (0.020, 0.002, 0.6), (0.016, 0.0015, 0.6)]
+    model = build_model(tubes, overlap=0.05, joint="rigid",
+                        supports=[("center", "fixed")], wind_speed=40.0)
+    expected = extents_from_specs(tubes, 0.05)
+    assert len(model.geometry_extents) == len(expected)
+    for got, exp in zip(model.geometry_extents, expected):
+        assert got.outer_d == exp.outer_d
+        assert got.wall == exp.wall
+        assert abs(got.inner_start - exp.inner_start) < 1e-12
+        assert abs(got.inner_end - exp.inner_end) < 1e-12
+
+
 def test_cli_subprocess_acceptance():
     code = ("from elementload.cli import main; "
             "main(['--tube','0.030,0.002,0.6',"

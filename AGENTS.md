@@ -78,8 +78,9 @@ The test skips automatically under other interpreters.
 7. report: survival wind speed per mode + diagrams (CLI acceptance test) — done
 8. later: dynamics (modal / vortex shedding), fatigue, multi-element model
 9. optimizer: catalog-constrained mass-optimal tube sizing (`optimize.py`, CLI `--optimize`) — done
-10. layout search: brute-force tube count/overlap/taper/sleeve design space, parallel
-    (`--layout-search`, `search_layouts` in optimize.py) — done
+10. layout search: brute-force tube count/taper/sleeve design space, parallel
+    (`--layout-search`, `search_layouts` in optimize.py); joint overlaps derived
+    from tube diameter — done
 
 ## Optimizer (`elementload/optimize.py`)
 
@@ -137,18 +138,26 @@ Key facts:
   Sweep rows that fail sizing print `infeasible` (ES too close to centre leaves
   the outer cantilever unsupported; ES near the tip over-peaks the pin).
 - `--layout-search` (with `--optimize`) brute-forces the layout design space:
-  tube count N (default 3..10), overlap, exposed-length taper (geometric ratio)
-  and an optional sleeve collar, sizing each layout from the catalog at the
-  design wind (`geom_exposed`/`layout_from_exposed` build per-side extents).
-  The grid is embarrassingly parallel and is spread over `--layout-workers`
-  processes (default `os.cpu_count()`; `search_layouts` in optimize.py). It
-  prints the lightest catalog-sized element per survival bucket, marking the
-  lightest that meets the design wind. Tip extension (`auto` by default in the
-  search) is applied per layout, so thin chains carry a positive per-side
-  extension and heavier survival. Known result for the 20m RE at 36.6 m/s:
-  3965.9 g with `[40x2;35x2;30x2;25x2;20x1.5;12x1]` (40x2.0 = 150 mm root
-  collar, 16 mm skipped, 12x1 mm tip) vs stock 4870.6 g; the telescoping bore
-  chain, not strength, is what fixes the root.
+  tube count N (default 3..10), exposed-length taper (geometric ratio) and an
+  optional sleeve collar, sizing each layout from the catalog at the design wind
+  (`geom_exposed`/`layout_from_exposed` build per-side extents). Joint overlaps
+  are DERIVED from the sized tube diameters, not brute-forced: `overlap_for_joint`
+  = max(100 mm, 3*D) using the outer/smaller tube at each joint, and the tip joint
+  keeps >= 125 mm so the clamp has tuning room; `joint_overlaps` applies the rule
+  per joint. Overlap changes the geometry, which changes the moments and thus the
+  diameters, so the layout-search job sizes to a fixed point (same `MAX_ITER` loop
+  as the drag/tip-extension coupling). Passing an explicit `overlaps` tuple to
+  `search_layouts` restores the old uniform-overlap grid (tests use this). The
+  grid is embarrassingly parallel and is spread over `--layout-workers` processes
+  (default `os.cpu_count()`; `search_layouts` in optimize.py). It prints the
+  lightest catalog-sized element per survival bucket, marking the lightest that
+  meets the design wind. Tip extension (`auto` by default in the search) is
+  applied per layout, so thin chains carry a positive per-side extension and
+  heavier survival. Known result for the 20m RE at 36.6 m/s:
+  4053.9 g with `[40x2;35x2;30x2;25x2;20x1.5;12x1]` (40x2.0 = 150 mm root
+  collar, 16 mm skipped, 12x1 mm tip, joint overlaps 105/100/100/100/125 mm,
+  37.3 m/s survival) vs stock 4870.6 g; the telescoping bore chain, not strength,
+  is what fixes the root.
 - Performance: the survival-wind-speed bisection factorizes each support-set
   stiffness once (`FactorizedSolver` in solver.py, LU) and only rebuilds the
   load vector + back-substitutes per step — ~4x faster than rebuilding the

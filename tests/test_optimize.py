@@ -4,12 +4,17 @@ import pytest
 
 from elementload.optimize import (
     _size_telescoped,
+    OVERLAP_DIAMETER_FACTOR,
+    OVERLAP_MIN,
+    TIP_OVERLAP_MIN,
     effective_diameter,
     element_mass,
     extend_tip,
     fits_inside,
     geom_exposed,
+    joint_overlaps,
     layout_from_exposed,
+    overlap_for_joint,
     parse_catalog_lines,
     pick_tube,
     read_catalog,
@@ -184,6 +189,92 @@ def test_layout_from_exposed_rejects_degenerate():
     assert layout_from_exposed([0.5, 0.5], 0.6, 1.0) is None
     # exposed lengths must sum to the half length
     assert layout_from_exposed([0.5, 0.5], 0.1, 1.3) is None
+
+
+def test_layout_from_exposed_accepts_per_joint_overlaps():
+    L = 5.705
+    xs = geom_exposed(6, 1.2, L, first=0.15)
+    per_joint = [0.100, 0.100, 0.105, 0.105, 0.125]
+    tubes = layout_from_exposed(xs, per_joint, L)
+    assert tubes is not None
+    assert tubes[0].inner_end == pytest.approx(0.15)
+    for k, ov in enumerate(per_joint):
+        assert tubes[k + 1].inner_start == pytest.approx(tubes[k].inner_end - ov)
+    assert tubes[-1].inner_end == pytest.approx(L)
+
+
+def test_layout_from_exposed_rejects_bad_overlap_list():
+    # wrong-length per-joint list
+    assert layout_from_exposed([0.5, 0.5, 0.5], [0.1], 1.5) is None
+    # negative per-joint overlap
+    assert layout_from_exposed([0.5, 0.5, 0.5], [0.1, -0.05], 1.5) is None
+
+
+def test_overlap_for_joint_uses_diameter_minimum():
+    # 16 mm tube: 3*D = 48 mm < 100 mm minimum -> 100 mm
+    assert overlap_for_joint(0.016) == pytest.approx(0.100)
+    # 50 mm tube: 3*D = 150 mm > 100 mm minimum -> 150 mm
+    assert overlap_for_joint(0.050) == pytest.approx(0.150)
+    assert overlap_for_joint(0.050) == pytest.approx(OVERLAP_DIAMETER_FACTOR * 0.050)
+    assert overlap_for_joint(0.016) == pytest.approx(OVERLAP_MIN)
+
+
+def test_overlap_for_joint_tip_minimum():
+    # tip joint keeps at least the tip minimum even for small tubes
+    assert overlap_for_joint(0.012, is_tip=True) == pytest.approx(TIP_OVERLAP_MIN)
+    # a large outer tube already exceeds the tip minimum
+    assert overlap_for_joint(0.050, is_tip=True) == pytest.approx(0.150)
+
+
+def test_joint_overlaps_uses_outer_tube_at_each_joint():
+    # joint k sits between tube k and k+1; the clamp goes over the outer tube k+1
+    tubes = layout_from_exposed([0.15, 0.20, 0.25], 0.10, 0.60)
+    assert tubes is not None
+    o = joint_overlaps(tubes)
+    assert len(o) == 2
+    assert o[0] == pytest.approx(overlap_for_joint(tubes[1].outer_d, is_tip=False))
+    assert o[1] == pytest.approx(overlap_for_joint(tubes[2].outer_d, is_tip=True))
+
+
+def test_search_layouts_derives_overlaps_by_default():
+    stm = read_stm(_path("a1.stm"))
+    el = [e for e in stm.elements if e.name == "20m RE"][0]
+    tubes = element_tube_extents(el)
+    results = search_layouts(
+        tubes, "rigid", [("center", "fixed")], stm.wind_speed,
+        el.material_key, None, catalog=CATALOG,
+        n_range=(6, 6), ratios=(1.2,),
+        sleeves=(0.15,), target_winds=[stm.wind_speed], workers=1)
+    assert results
+    for r in results:
+        # overlaps are reported per joint and consistent with the sized chain
+        assert len(r["overlaps"]) == r["n"] - 1
+        assert all(ov >= OVERLAP_MIN - 1e-9 for ov in r["overlaps"])
+        # every per-joint overlap obeys the rule for the outer tube of that joint
+        o_d = [float(p.split("x")[0]) / 1000.0 for p in r["chain"].split(";")]
+        for k, ov in enumerate(r["overlaps"]):
+            is_tip = k == len(o_d) - 2
+            assert ov == pytest.approx(overlap_for_joint(o_d[k + 1], is_tip=is_tip))
+
+
+def test_search_layouts_derived_overlaps_fixed_point():
+    # the derived overlap is self-consistent: re-deriving from the sized extents
+    # reproduces the overlaps the sizing was run with
+    from elementload.assembly import TubeExtent
+    stm = read_stm(_path("a1.stm"))
+    el = [e for e in stm.elements if e.name == "20m RE"][0]
+    tubes = element_tube_extents(el)
+    results = search_layouts(
+        tubes, "rigid", [("center", "fixed")], stm.wind_speed,
+        el.material_key, None, catalog=CATALOG,
+        n_range=(5, 5), ratios=(1.0,),
+        sleeves=(None,), target_winds=[stm.wind_speed], workers=1)
+    assert results
+    for r in results:
+        opt = [TubeExtent(d, t, s, e) for (d, t, s, e) in r["extents"]]
+        for k, ov in enumerate(r["overlaps"]):
+            joint = opt[k].inner_end - opt[k + 1].inner_start
+            assert joint == pytest.approx(ov, abs=1e-6)
 
 
 def test_search_layouts_finds_lighter_than_stock():

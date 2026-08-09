@@ -166,7 +166,7 @@ Options:
 | `--es-sweep` | sweep the ES support position, re-optimizing the tubes at each point |
 | `--es-range START END` | ES position range for the sweep (m from centre; default 0.25x..0.95x half-length) |
 | `--es-steps N` | sweep points (default 15) |
-| `--layout-search` | brute-force the layout design space (tube count, overlap, taper, sleeve) and print the lightest element per survival wind speed |
+| `--layout-search` | brute-force the layout design space (tube count, taper, sleeve; overlaps derived from diameter) and print the lightest element per survival wind speed |
 | `--layout-workers N` | worker processes for `--layout-search` (default: all CPU cores) |
 | `--layout-n NMIN NMAX` | tube-count range for `--layout-search` (default 3 10) |
 
@@ -192,24 +192,26 @@ the pin and force a heavier chain.
 
 ### Layout design-space search
 
-`--layout-search` brute-forces the layout itself — how many tubes, how much they
-overlap, the exposed-length taper, and an optional short sleeve collar at the
-root — sizes each layout from the catalog at the design wind, and prints the
-lightest element per survival wind speed, marking the lightest that meets the
-design wind. The grid is spread over `--layout-workers` processes (default: all
-cores):
+`--layout-search` brute-forces the layout itself — how many tubes, the exposed-
+length taper, and an optional short sleeve collar at the root — sizes each layout
+from the catalog at the design wind, and prints the lightest element per survival
+wind speed, marking the lightest that meets the design wind. Joint overlaps are
+derived from the sized tube diameters rather than brute-forced: each joint gets
+max(100 mm, 3 x tube diameter) using the outer/smaller tube, and the tip joint
+keeps at least 125 mm so the clamp has tuning room. The grid is spread over
+`--layout-workers` processes (default: all cores):
 
 ```
 elementload.cmd --stm data/a1.stm --element "20m RE" --optimize --layout-search
 ```
 
-For the 20 m RE at the 36.6 m/s design wind the search finds a 3965.9 g element
+For the 20 m RE at the 36.6 m/s design wind the search finds a 4053.9 g element
 (`[40x2;35x2;30x2;25x2;20x1.5;12x1]`: a 150 mm 40 mm collar at the root, the 16
-mm size skipped, 12 mm at the tip) vs 4870.6 g stock and 4751.7 g for the
-fixed-geometry optimizer. Because a telescope must host every tube inside its
-bore, the root diameter is locked by the tip chain — strength alone never fixes
-it, which is why the layout (not just the section sizes) is the real design
-lever.
+mm size skipped, 12 mm at the tip, joint overlaps 105/100/100/100/125 mm) vs
+4870.6 g stock and 4751.7 g for the fixed-geometry optimizer. Because a telescope
+must host every tube inside its bore, the root diameter is locked by the tip
+chain — strength alone never fixes it, which is why the layout (not just the
+section sizes) is the real design lever.
 
 ## Failure modes
 

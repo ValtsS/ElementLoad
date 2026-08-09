@@ -122,6 +122,11 @@ def render_report(model, result, wind_speed, damping=0.01, height=10.0, z_0=0.05
     lines.append(f"Supports: {supports}")
     lines.append(f"Material: {model.material}")
     lines.append(f"Pins: {model.n_pins} x {model.pin_diameter * 1000:.1f} mm at each joint")
+    if model.geometry_extents:
+        mass = element_mass(model.geometry_extents)
+        tip = model.geometry_extents[-1].inner_end
+        lines.append(f"Total mass: {mass * 1000:.1f} g ({mass * 9.81:.1f} N self-weight); "
+                     f"element length {2 * tip:.2f} m (half {tip:.2f} m)")
     lines.append("")
     lines.append(f"Analysis at wind speed {wind_speed:.1f} m/s:")
     lines.append(f"  max moment:   {result.max_moment:9.1f} N.m at x = {result.max_moment_location:+.2f} m")
@@ -406,13 +411,19 @@ def render_layout_search(el, wind_speed, args, parser):
     lightest_ok = min(design_met, key=lambda r: r["mass"]) if design_met else None
 
     lines.append("  Pareto frontier (lightest non-dominated design at each survival):")
-    lines.append(f"    {'survival':>8}  {'mass':>9}  {'N':>2}  {'ov':>4}  {'taper':>5}  "
-                 f"{'sleeve':>6}   chain (centre -> tip)")
+    lines.append(f"    {'survival':>8}  {'mass':>9}  {'N':>2}  {'ov (mm)':>10}  "
+                 f"{'taper':>5}  {'sleeve':>6}   chain (centre -> tip)")
+
+    def _overlaps_label(r):
+        if r["overlaps"]:
+            return "/".join(f"{o * 1000:.0f}" for o in r["overlaps"])
+        return ""
+
     for r in _pareto_frontier(results):
         mark = " <- lightest at/above design wind" if r is lightest_ok else ""
         lines.append(
             f"    {r['survival']:8.1f}  {r['mass'] * 1000:8.1f} g  {r['n']:2d}  "
-            f"{r['overlap']:4.2f}  {r['ratio']:5.2f}  "
+            f"{_overlaps_label(r):>10}  {r['ratio']:5.2f}  "
             f"{r['sleeve'] if r['sleeve'] is not None else '-':>6}   [{r['chain']}]{mark}")
     if lightest_ok is None:
         lines.append("    (no layout reaches the design wind speed)")
@@ -552,8 +563,10 @@ def main(argv=None):
                              "the tubes at each position, and print mass vs ES")
     parser.add_argument("--layout-search", action="store_true",
                         help="with --optimize: brute-force the layout design space "
-                             "(tube count, overlap, taper, sleeve collar) and print the "
-                             "lightest catalog-sized element per survival wind speed")
+                             "(tube count, taper, sleeve collar; joint overlaps derived "
+                             "from tube diameter, max(100 mm, 3*D) with tip >= 125 mm) "
+                             "and print the lightest catalog-sized element per survival "
+                             "wind speed")
     parser.add_argument("--layout-workers", type=int, default=None, metavar="N",
                         help="worker processes for --layout-search (default: os.cpu_count())")
     parser.add_argument("--layout-n", type=int, nargs=2, default=(3, 10),
@@ -561,8 +574,8 @@ def main(argv=None):
                         help="tube-count range for --layout-search (default 3 10)")
     parser.add_argument("--max-tube-length", type=float, default=6.0, metavar="M",
                         help="maximum full length of any non-root tube (default 6.0 m)")
-    parser.add_argument("--max-root-length", type=float, default=3.0, metavar="M",
-                        help="maximum full length of the root tube (default 3.0 m)")
+    parser.add_argument("--max-root-length", type=float, default=6.0, metavar="M",
+                        help="maximum full length of the root tube (default 6.0 m)")
     parser.add_argument("--es-range", type=float, nargs=2, default=None, metavar=("START", "END"),
                         help="ES position range for --es-sweep (m from centre; default "
                              "0.25 x to 0.95 x element half-length)")

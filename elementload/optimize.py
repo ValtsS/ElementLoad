@@ -34,6 +34,28 @@ from elementload.report import (
 
 MM_TO_M = 1.0e-3
 MAX_ITER = 20
+OVERLAP_MIN = 0.100      # 100 mm overlap floor for small tubes
+OVERLAP_DIAMETER_FACTOR = 3.0   # 3 tube diameters for larger tubes
+TIP_OVERLAP_MIN = 0.125  # 125 mm tip-joint minimum for clamp tuning
+
+
+def overlap_for_joint(outer_d, is_tip=False):
+    """Overlap length (m) for a joint whose outer (smaller, tip-side) tube has
+    diameter `outer_d`: at least OVERLAP_MIN, and 3 diameters for larger tubes;
+    the outermost (tip) joint gets at least TIP_OVERLAP_MIN for clamp tuning."""
+    ov = max(OVERLAP_MIN, OVERLAP_DIAMETER_FACTOR * outer_d)
+    if is_tip:
+        ov = max(ov, TIP_OVERLAP_MIN)
+    return ov
+
+
+def joint_overlaps(tubes):
+    """Per-joint overlap lengths (m) for a telescoping element derived from the
+    tube diameters: at joint k (between tubes k and k+1) the outer tube is the
+    smaller one, tubes[k+1]; the outermost joint gets the tip minimum."""
+    n = len(tubes)
+    return [overlap_for_joint(tubes[k + 1].outer_d, is_tip=(k == n - 2))
+            for k in range(n - 1)]
 BORE_EPS = 1.0e-9
 TIP_EXTENSION_COEFF = 0.1
 
@@ -378,16 +400,23 @@ def _size_telescoped(moments, catalog, yield_stress, clearance):
 def layout_from_exposed(exposed, overlap, half_length):
     """Tube extents (innermost first) from per-tube exposed lengths: exposed[k] is
     how far tube k protrudes beyond the tube inside it (exposed[0] = root tube
-    length), consecutive tubes overlapping by `overlap`. Returns a list of
-    TubeExtent, or None if the geometry is degenerate (negative start)."""
+    length), consecutive tubes overlapping by `overlap` (a single value for all
+    joints, or a list of per-joint overlaps). Returns a list of TubeExtent, or
+    None if the geometry is degenerate (negative start)."""
     if any(e <= 0.0 for e in exposed):
         return None
-    if overlap < 0.0:
-        return None
+    if isinstance(overlap, (list, tuple)):
+        overlaps = list(overlap)
+        if len(overlaps) != len(exposed) - 1 or any(o < 0.0 for o in overlaps):
+            return None
+    else:
+        if overlap < 0.0:
+            return None
+        overlaps = [overlap] * (len(exposed) - 1)
     end = 0.0
     tubes = []
     for k, e in enumerate(exposed):
-        start = 0.0 if k == 0 else end - overlap
+        start = 0.0 if k == 0 else end - overlaps[k - 1]
         if start < -1e-9:
             return None
         end += e
@@ -422,17 +451,44 @@ def _layout_search_job(job):
     exposed = geom_exposed(n, ratio, half_length, first=sleeve)
     if exposed is None:
         return None
-    layout = layout_from_exposed(exposed, overlap, half_length)
-    if layout is None:
-        return None
-    try:
-        opt, applied = size_with_tip_extension(
-            layout, ref_tubes, joint, supports, wind, material,
-            yield_stress, catalog=catalog, pin_diameter=pin_diameter,
-            n_pins=n_pins, clearance=clearance, length_step=length_step,
-            tip_extension=tip_extension, coeff=coeff)
-    except ValueError:
-        return None
+    if overlap is None:
+        # derived per-joint overlaps: size, then re-derive overlaps from the
+        # sized tube diameters and re-size to a fixed point (overlap changes the
+        # geometry, which changes the moments, which changes the diameters).
+        overlaps = [OVERLAP_MIN] * (n - 1)
+        opt = None
+        applied = 0.0
+        for _ in range(MAX_ITER):
+            layout = layout_from_exposed(exposed, overlaps, half_length)
+            if layout is None:
+                return None
+            try:
+                opt, applied = size_with_tip_extension(
+                    layout, ref_tubes, joint, supports, wind, material,
+                    yield_stress, catalog=catalog, pin_diameter=pin_diameter,
+                    n_pins=n_pins, clearance=clearance, length_step=length_step,
+                    tip_extension=tip_extension, coeff=coeff)
+            except ValueError:
+                return None
+            new_overlaps = joint_overlaps(opt)
+            if all(abs(a - b) <= 1e-4 for a, b in zip(new_overlaps, overlaps)):
+                break
+            overlaps = new_overlaps
+        if opt is None:
+            return None
+    else:
+        layout = layout_from_exposed(exposed, overlap, half_length)
+        if layout is None:
+            return None
+        try:
+            opt, applied = size_with_tip_extension(
+                layout, ref_tubes, joint, supports, wind, material,
+                yield_stress, catalog=catalog, pin_diameter=pin_diameter,
+                n_pins=n_pins, clearance=clearance, length_step=length_step,
+                tip_extension=tip_extension, coeff=coeff)
+        except ValueError:
+            return None
+        overlaps = [overlap] * (n - 1)
     # enforce tube length constraints (full physical length)
     for i, t in enumerate(opt):
         flen = 2.0 * (t.inner_end - t.inner_start)
@@ -445,7 +501,8 @@ def _layout_search_job(job):
     chain = ";".join(f"{t.outer_d * 1000:.0f}x{t.wall * 1000:g}" for t in opt)
     extents = [(t.outer_d, t.wall, t.inner_start, t.inner_end) for t in opt]
     return {
-        "n": n, "overlap": overlap, "ratio": ratio, "sleeve": sleeve,
+        "n": n, "overlap": overlap, "overlaps": overlaps,
+        "ratio": ratio, "sleeve": sleeve,
         "wind": wind, "mass": element_mass(opt), "survival": survival,
         "chain": chain, "tip_ext": applied, "extents": extents,
     }
@@ -455,14 +512,17 @@ def search_layouts(tubes, joint, supports, wind_speed, material,
                    yield_stress=None, catalog=None, pin_diameter=0.004, n_pins=2,
                    clearance=1.0e-3, length_step=0.0,
                    tip_extension=None, ref_tubes=None, coeff=TIP_EXTENSION_COEFF,
-                   n_range=(3, 10), overlaps=(0.10, 0.15, 0.20),
+                   n_range=(3, 10), overlaps=None,
                    ratios=(0.6, 0.8, 1.0, 1.2, 1.4, 1.6),
                    sleeves=(None, 0.150, 0.250, 0.400),
                    target_winds=None, workers=None,
-                   max_root_length=3.0, max_tube_length=6.0):
+                   max_root_length=6.0, max_tube_length=6.0):
     """Brute-force the layout design space: tube count, overlap, exposed-length
     taper and a sleeve collar, sizing each layout from the catalog at the target
     winds and reporting the mass and yield-survival of every feasible candidate.
+    `overlaps` is the overlap grid to brute-force: a tuple of uniform overlaps
+    (in m) or None (default) to derive per-joint overlaps from the sized tube
+    diameters (max(100 mm, 3*D), tip >= 125 mm) in a fixed-point loop.
     `tip_extension` is passed through to each sizing (None = none, a length in m
     = fixed per-side, "auto" = mean-diameter-based compensation using
     `ref_tubes`, defaulting to `tubes`). The grid is embarrassingly parallel
@@ -473,6 +533,8 @@ def search_layouts(tubes, joint, supports, wind_speed, material,
         ref_tubes = tubes
     if target_winds is None:
         target_winds = [wind_speed]
+    if overlaps is None:
+        overlaps = [None]
     jobs = []
     for n in range(n_range[0], n_range[1] + 1):
         for overlap, ratio, sleeve in itertools.product(overlaps, ratios, sleeves):

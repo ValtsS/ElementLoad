@@ -364,11 +364,15 @@ def render_layout_search(el, wind_speed, args, parser):
         pin_diameter=args.pin_diameter, n_pins=args.n_pins,
         clearance=args.clearance, length_step=args.length_step,
         tip_extension=args.tip_extension, ref_tubes=stock_tubes,
-        n_range=args.layout_n, workers=args.layout_workers)
+        n_range=args.layout_n, workers=args.layout_workers,
+        max_root_length=args.max_root_length,
+        max_tube_length=args.max_tube_length)
     lines = []
     lines.append(f"Layout design-space search at target wind {wind_speed:.1f} m/s "
                  f"(N={args.layout_n[0]}..{args.layout_n[1]}, "
                  f"{len(results)} feasible of the grid, {args.layout_workers or 'all cores'} workers):")
+    lines.append(f"  tube length limit: root {args.max_root_length:g} m, "
+                 f"others {args.max_tube_length:g} m (full length)")
     lines.append("")
     supports_note = ", ".join(f"{p:g}:{k}" if isinstance(p, float) else f"{p}:{k}"
                               for p, k in supports)
@@ -546,6 +550,10 @@ def main(argv=None):
     parser.add_argument("--layout-n", type=int, nargs=2, default=(3, 10),
                         metavar=("NMIN", "NMAX"),
                         help="tube-count range for --layout-search (default 3 10)")
+    parser.add_argument("--max-tube-length", type=float, default=6.0, metavar="M",
+                        help="maximum full length of any non-root tube (default 6.0 m)")
+    parser.add_argument("--max-root-length", type=float, default=3.0, metavar="M",
+                        help="maximum full length of the root tube (default 3.0 m)")
     parser.add_argument("--es-range", type=float, nargs=2, default=None, metavar=("START", "END"),
                         help="ES position range for --es-sweep (m from centre; default "
                              "0.25 x to 0.95 x element half-length)")

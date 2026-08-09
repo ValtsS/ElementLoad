@@ -418,7 +418,7 @@ def _layout_search_job(job):
     Returns a result dict, or None when the layout/sizing is infeasible."""
     n, overlap, ratio, sleeve, wind, half_length, material, yield_stress, \
         joint, supports, catalog, pin_diameter, n_pins, clearance, length_step, \
-        tip_extension, ref_tubes, coeff = job
+        tip_extension, ref_tubes, coeff, max_root_length, max_tube_length = job
     exposed = geom_exposed(n, ratio, half_length, first=sleeve)
     if exposed is None:
         return None
@@ -433,6 +433,12 @@ def _layout_search_job(job):
             tip_extension=tip_extension, coeff=coeff)
     except ValueError:
         return None
+    # enforce tube length constraints (full physical length)
+    for i, t in enumerate(opt):
+        flen = 2.0 * (t.inner_end - t.inner_start)
+        limit = max_root_length if i == 0 else max_tube_length
+        if flen > limit + 1e-9:
+            return None
     model = build_model_from_geometry(opt, joint, supports, wind, material,
                                       pin_diameter, n_pins, yield_stress)
     survival = survival_wind_speed(model, "yield")
@@ -452,7 +458,8 @@ def search_layouts(tubes, joint, supports, wind_speed, material,
                    n_range=(3, 10), overlaps=(0.10, 0.15, 0.20),
                    ratios=(0.6, 0.8, 1.0, 1.2, 1.4, 1.6),
                    sleeves=(None, 0.150, 0.250, 0.400),
-                   target_winds=None, workers=None):
+                   target_winds=None, workers=None,
+                   max_root_length=3.0, max_tube_length=6.0):
     """Brute-force the layout design space: tube count, overlap, exposed-length
     taper and a sleeve collar, sizing each layout from the catalog at the target
     winds and reporting the mass and yield-survival of every feasible candidate.
@@ -473,7 +480,8 @@ def search_layouts(tubes, joint, supports, wind_speed, material,
                 jobs.append((n, overlap, ratio, sleeve, wind, half_length,
                              material, yield_stress, joint, tuple(supports),
                              catalog, pin_diameter, n_pins, clearance, length_step,
-                             tip_extension, ref_tubes, coeff))
+                             tip_extension, ref_tubes, coeff,
+                             max_root_length, max_tube_length))
     if workers is None:
         workers = os.cpu_count() or 1
     results = []

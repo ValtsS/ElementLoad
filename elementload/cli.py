@@ -85,15 +85,18 @@ def _deflection_samples(model, result):
 
 def _tubes_table(extents, indent="    "):
     """Per-tube table for a list of (D, t, start, stop) extents: Dxwall, per-side
-    start/stop (m from centre), exposed (per-side), and full physical length
-    (2x exposed). Matches the layout-search materialize table."""
+    start/stop (m from centre), exposed (protruding beyond the tube inside it,
+    per side), and full physical length (2x the per-side span). Matches the
+    layout-search materialize table."""
     lines = [f"{indent}tubes (centre -> tip):"]
     lines.append(f"{indent}{'Dxwall':<12} {'start':>6} {'stop':>6} {'exposed':>8} {'full':>8}")
+    prev_stop = None
     for d, t, a, b in extents:
-        exposed = b - a
-        full = 2.0 * exposed
+        exposed = b - (prev_stop if prev_stop is not None else a)
+        full = 2.0 * (b - a)
         lines.append(f"{indent}{f'{d * 1000:.0f}x{t * 1000:g}':<12} {a:>6.3f} {b:>6.3f} "
                      f"{exposed:>8.3f} {full:>8.3f}")
+        prev_stop = b
     return "\n".join(lines)
 
 

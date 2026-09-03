@@ -43,6 +43,28 @@ def test_render_report_tube_table_matches_layout_materialize():
     assert _materialize_table(r) == _tubes_table(r["extents"])
 
 
+def test_tubes_table_exposed_is_protrusion_beyond_inner_tube():
+    from elementload.cli import _tubes_table
+    # a 40m RE layout: each tube's exposed length is how far it sticks out past
+    # the tube inside it (stop[k] - stop[k-1]), NOT its per-side span
+    extents = [
+        (0.050, 0.002, 0.000, 2.603),
+        (0.045, 0.002, 2.468, 4.686),
+        (0.040, 0.002, 4.566, 6.352),
+        (0.035, 0.002, 6.247, 7.685),
+    ]
+    text = _tubes_table(extents)
+    rows = [ln.split() for ln in text.splitlines() if ln and ln.split()[0][0].isdigit()]
+    # (Dxwall, start, stop, exposed, full) per row
+    assert rows[0][3] == "2.603"   # root: whole length protrudes
+    assert rows[1][3] == "2.083"   # 4.686 - 2.603, not 2.218
+    assert rows[2][3] == "1.666"   # 6.352 - 4.686, not 1.786
+    assert rows[3][3] == "1.333"   # 7.685 - 6.352, not 1.438
+    # full is still the physical length = 2 * per-side span
+    assert rows[1][4] == f"{2 * (4.686 - 2.468):.3f}"
+    assert rows[2][4] == f"{2 * (6.352 - 4.566):.3f}"
+
+
 def test_build_model_geometry_extents_match_telescoping():
     from elementload.assembly import extents_from_specs
     tubes = [(0.030, 0.002, 0.6), (0.025, 0.002, 0.6), (0.020, 0.002, 0.6), (0.016, 0.0015, 0.6)]

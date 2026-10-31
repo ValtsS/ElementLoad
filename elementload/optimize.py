@@ -56,6 +56,41 @@ def joint_overlaps(tubes):
     n = len(tubes)
     return [overlap_for_joint(tubes[k + 1].outer_d, is_tip=(k == n - 2))
             for k in range(n - 1)]
+
+
+def reference_chain(catalog, length, ratio=1.2):
+    """Synthetic reference telescoping element of total `length` (full span,
+    m) built from the tube catalog: catalog diameters (largest at centre) in a
+    geometric exposed-length taper over the half-length, with diameter-derived
+    joint overlaps (fixed point). Uses as many tubes as the catalog allows
+    (3 .. len(distinct diameters)) for the given length. Returns a TubeExtent
+    list, or None if even 3 tubes cannot span the length."""
+    sizes = sorted({d for d, _ in catalog}, reverse=True)
+    by_d = {}
+    for d, t in catalog:
+        by_d[d] = max(by_d.get(d, 0.0), t)
+    half = length / 2.0
+    # try the most tubes first (longer elements can host more joints); fall
+    # back to fewer tubes for short elements
+    for n in range(len(sizes), 2, -1):
+        exposed = geom_exposed(n, ratio, half)
+        overlaps = [OVERLAP_MIN] * (n - 1)
+        tubes = None
+        ok = True
+        for _ in range(MAX_ITER):
+            layout = layout_from_exposed(exposed, overlaps, half)
+            if layout is None:
+                ok = False
+                break
+            tubes = [TubeExtent(sizes[k], by_d[sizes[k]], t.inner_start, t.inner_end)
+                     for k, t in enumerate(layout)]
+            new_overlaps = joint_overlaps(tubes)
+            if all(abs(a - b) <= 1e-4 for a, b in zip(new_overlaps, overlaps)):
+                break
+            overlaps = new_overlaps
+        if ok and tubes is not None:
+            return tubes
+    return None
 BORE_EPS = 1.0e-9
 TIP_EXTENSION_COEFF = 0.1
 

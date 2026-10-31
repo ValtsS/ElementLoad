@@ -5,7 +5,7 @@ import os
 from elementload.report import build_model, analyze, survival_wind_speed, build_model_from_geometry
 from elementload.stm import read_stm, element_tube_extents
 from elementload.solver import internal_moment
-from elementload.optimize import element_mass, read_catalog, size_with_tip_extension
+from elementload.optimize import element_mass, read_catalog, reference_chain, size_with_tip_extension
 
 _MODES = ("yield", "buckling", "pin_shear")
 
@@ -368,24 +368,15 @@ def render_es_sweep(el, wind_speed, args, parser):
     return "\n".join(lines), rows
 
 
-def render_layout_search(el, wind_speed, args, parser):
-    """Brute-force the layout design space (N, overlap, taper, sleeve) and print
-    the lightest catalog-sized element at each survival wind speed."""
+def render_layout_search(stock_tubes, material, yield_stress, supports, wind_speed, args, parser):
+    """Brute-force the layout design space (N, taper, sleeve) and print the
+    lightest catalog-sized element at each survival wind speed."""
     from elementload.optimize import search_layouts
-    mat = args.material or el.material_key
-    yield_stress = None if mat is not None else el.yield_stress
-    stock_tubes = element_tube_extents(el)
-    supports = args.support
-    if supports is None:
-        supports = [("center", "fixed")]
-        if el.support_distance > 0.0:
-            es_kind = "sag" if args.es_model == "sag" else "pin"
-            supports += [(el.support_distance, es_kind), (-el.support_distance, es_kind)]
     catalog = read_catalog(args.catalog or os.path.join(
         os.path.dirname(__file__), "..", "data", "tube_catalog.csv"))
     results = search_layouts(
         stock_tubes, args.joint or "rigid", supports, wind_speed,
-        mat or el.material, yield_stress, catalog=catalog,
+        material, yield_stress, catalog=catalog,
         pin_diameter=args.pin_diameter, n_pins=args.n_pins,
         clearance=args.clearance, length_step=args.length_step,
         tip_extension=args.tip_extension, ref_tubes=stock_tubes,
@@ -437,7 +428,7 @@ def render_layout_search(el, wind_speed, args, parser):
     for i, r in enumerate(_pareto_frontier(results), start=1):
         mark = " <- lightest at/above design wind" if r is lightest_ok else ""
         cmd = _materialize_command(r, args.joint or "rigid", supports, wind_speed,
-                                   material=mat)
+                                   material=material)
         lines.append(f"  [{i}] {r['survival']:5.1f} m/s  {r['mass'] * 1000:7.1f} g{mark}")
         lines.append(f"      {cmd}")
         lines.append(_materialize_table(r))
@@ -575,6 +566,10 @@ def main(argv=None):
     parser.add_argument("--layout-n", type=int, nargs=2, default=(3, 10),
                         metavar=("NMIN", "NMAX"),
                         help="tube-count range for --layout-search (default 3 10)")
+    parser.add_argument("--length", type=float, default=None, metavar="M",
+                        help="total element length in m; with --optimize "
+                             "(and --layout-search) builds the reference chain "
+                             "from the catalog instead of an .stm file")
     parser.add_argument("--max-tube-length", type=float, default=6.0, metavar="M",
                         help="maximum full length of any non-root tube (default 6.0 m)")
     parser.add_argument("--max-root-length", type=float, default=6.0, metavar="M",
@@ -623,10 +618,23 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     if args.stm is not None:
+        if args.length is not None:
+            parser.error("--length is not used with --stm "
+                         "(the element length comes from the file)")
         if args.tube is not None or args.overlap is not None or args.extent is not None:
             parser.error("--tube/--extent/--overlap are not used with --stm "
                          "(geometry comes from the file)")
         return _main_stm(args, parser)
+
+    if args.length is not None:
+        if args.tube is not None or args.extent is not None or args.overlap is not None:
+            parser.error("--length is not used with --tube/--extent/--overlap")
+        if not args.optimize:
+            parser.error("--length requires --optimize (with optional --layout-search)")
+        if args.es_sweep:
+            parser.error("--es-sweep is not used with --length (no ES support; "
+                         "pass --support explicitly)")
+        return _main_length(args, parser)
 
     if args.extent is not None:
         if args.tube is not None or args.overlap is not None:
@@ -670,6 +678,37 @@ def _main_extent(args, parser):
         print(f"Plot saved: {path}")
 
 
+def _main_length(args, parser):
+    """Layout search or optimize from a bare length and catalog."""
+    from elementload.optimize import reference_chain
+    if args.length <= 0:
+        parser.error("--length must be positive")
+    wind = args.wind if args.wind is not None else 30.0
+    catalog = read_catalog(args.catalog or os.path.join(
+        os.path.dirname(__file__), "..", "data", "tube_catalog.csv"))
+    stock_tubes = reference_chain(catalog, args.length)
+    if stock_tubes is None:
+        parser.error(f"catalog cannot build a reference element of length {args.length:g} m")
+    mat = args.material or "al6061-t6"
+    yield_stress = None  # known material -> allowables table
+    supports = args.support if args.support is not None else [("center", "fixed")]
+    height = args.height if args.height is not None else 10.0
+    if args.layout_search:
+        print(render_layout_search(stock_tubes, mat, yield_stress, supports, wind, args, parser))
+        return
+    opt_tubes, applied_ext = size_with_tip_extension(
+        stock_tubes, stock_tubes, args.joint or "rigid", supports, wind, mat,
+        yield_stress, catalog=catalog, pin_diameter=args.pin_diameter,
+        n_pins=args.n_pins, clearance=args.clearance,
+        length_step=args.length_step, tip_extension=args.tip_extension)
+    print(render_optimization(
+        opt_tubes, stock_tubes, wind, mat, yield_stress,
+        args.joint or "rigid", supports, args.pin_diameter, args.n_pins,
+        args.clearance, tip_extension=applied_ext,
+        tip_extension_kind=_tip_extension_label(args.tip_extension)))
+
+
+
 def _main_stm(args, parser):
     stm = read_stm(args.stm)
     print(f"YagiMechanical file: {args.stm}")
@@ -695,18 +734,19 @@ def _main_stm(args, parser):
         el = elements[0]
         mat = args.material or el.material_key
         yield_stress = None if mat is not None else el.yield_stress
-        if args.es_sweep:
-            print(render_es_sweep(el, wind, args, parser)[0])
-            return
-        if args.layout_search:
-            print(render_layout_search(el, wind, args, parser))
-            return
         supports = args.support
         if supports is None:
             supports = [("center", "fixed")]
             if el.support_distance > 0.0:
                 es_kind = "sag" if args.es_model == "sag" else "pin"
                 supports += [(el.support_distance, es_kind), (-el.support_distance, es_kind)]
+        if args.es_sweep:
+            print(render_es_sweep(el, wind, args, parser)[0])
+            return
+        if args.layout_search:
+            print(render_layout_search(element_tube_extents(el), mat, yield_stress,
+                                       supports, wind, args, parser))
+            return
         catalog_path = args.catalog
         if catalog_path is None:
             catalog_path = os.path.join(os.path.dirname(__file__), "..", "data", "tube_catalog.csv")
